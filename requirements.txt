@@ -1,0 +1,6 @@
+streamlit
+pandas
+pymongo
+plotly
+streamlit-autorefresh
+dnspython
