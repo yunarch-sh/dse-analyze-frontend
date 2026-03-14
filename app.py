@@ -66,6 +66,10 @@ if view_mode == "Market Grid":
 else:
     target_stock = st.sidebar.selectbox("🎯 Select Stock to Analyze", all_stocks)
 
+if st.sidebar.button("Log Out"):
+    st.session_state["password_correct"] = False
+    st.rerun()
+
 # --- 4. HELPER FUNCTION ---
 def get_stock_data(symbol):
     cursor = collection.find({"TRADING CODE": symbol}).sort("captured_at", 1)
