@@ -7,6 +7,36 @@ from streamlit_autorefresh import st_autorefresh
 
 # --- 1. SECURE DATABASE CONNECTION ---
 # We use st.secrets so your password NEVER appears on your public GitHub.
+# --- 0. BASIC AUTHENTICATION ---
+def check_password():
+    """Returns True if the user had the correct password."""
+    def password_entered():
+        if st.session_state["username"] == st.secrets["LOGIN_USER"] and \
+           st.session_state["password"] == st.secrets["LOGIN_PASS"]:
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]  # don't store password
+            del st.session_state["username"]
+        else:
+            st.session_state["password_correct"] = False
+
+    if "password_correct" not in st.session_state:
+        # First run, show inputs for username and password
+        st.text_input("Username", on_change=password_entered, key="username")
+        st.text_input("Password", type="password", on_change=password_entered, key="password")
+        return False
+    elif not st.session_state["password_correct"]:
+        # Password not correct, show input + error
+        st.text_input("Username", on_change=password_entered, key="username")
+        st.text_input("Password", type="password", on_change=password_entered, key="password")
+        st.error("😕 User not known or password incorrect")
+        return False
+    else:
+        # Password correct.
+        return True
+
+if not check_password():
+    st.stop()  # Do not run the rest of the app if not authenticated
+    
 try:
     # This looks for the "MONGO_URI" you will paste into Streamlit's Advanced Settings
     MONGO_URI = st.secrets["MONGO_URI"]
