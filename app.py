@@ -155,5 +155,4 @@ if not raw_df.empty:
 else:
     st.warning("No data found for the selected range. Ensure your collector is running.")
 
-st.divider()
-st.caption(f"Range: {dt_start.strftime('%H:%M')} to {dt_end.strftime('%H:%M')} UTC")
+st.divider()st.caption(f"Showing data from {display_start} to {display_end} (Dhaka Time) | Database Time: UTC")
