@@ -106,6 +106,11 @@ if not raw_df.empty:
     if summary:
         analysis_df = pd.DataFrame(summary).sort_values("Stay (Mins)", ascending=False)
         
+        # --- 🏆 TOP SUMMARY ---
+        top_stay = analysis_df.iloc[0]
+        st.success(f"🏆 **Highest Conviction Stay:** **{top_stay['Stock']}** at **{top_stay['Price']} BDT**")
+
+        # --- 📋 RANKED TABLE ---
         st.subheader("📋 Ranked Price Stays")
         st.dataframe(analysis_df, use_container_width=True, hide_index=True)
         
@@ -114,57 +119,89 @@ if not raw_df.empty:
         # --- 📈 STOCK SELECTION & TOGGLE ---
         c1, c2 = st.columns([2, 1])
         with c1:
-            selected_stock = st.selectbox("🔍 Select Stock for Detailed View:", analysis_df['Stock'].unique())
+            selected_stock = st.selectbox("🔍 Select Stock for Detailed Analysis:", analysis_df['Stock'].unique())
         with c2:
-            view_mode = st.radio("📊 Profile Bar Mode:", ["Volume", "Time Stayed"], horizontal=True)
+            view_mode = st.radio("📊 Profile Bar Mode:", ["Volume", "Time Stayed", "Overlap"], horizontal=True)
 
         if selected_stock:
-            # 1. PROFILE CHART (NOW ON TOP)
+            # Aggregate data for the profile
             stock_summary = analysis_df[analysis_df['Stock'] == selected_stock].copy()
             profile_data = stock_summary.groupby("Price").agg({
                 "Vol Traded": "sum",
                 "Stay (Mins)": "sum"
             }).reset_index().sort_values("Price", ascending=True)
 
-            target_col = "Vol Traded" if view_mode == "Volume" else "Stay (Mins)"
-            unit = "Shares" if view_mode == "Volume" else "Mins"
-            bar_color = "#636EFA" if view_mode == "Volume" else "#EF553B"
-
             # Dynamic height so bars stay thick even with few price levels
-            chart_height = 150 + (len(profile_data) * 40)
+            chart_height = 150 + (len(profile_data) * 45)
 
             st.subheader(f"📊 {view_mode} Profile: {selected_stock}")
             fig_p = go.Figure()
-            fig_p.add_trace(go.Bar(
-                y=profile_data["Price"],
-                x=profile_data[target_col],
-                orientation='h',
-                marker_color=bar_color,
-                hovertemplate="<b>Price: %{y}</b><br>" + f"{view_mode}: " + "%{x}<extra></extra>"
-            ))
+
+            if view_mode == "Overlap":
+                # Add Volume Bar (Bottom Axis)
+                fig_p.add_trace(go.Bar(
+                    y=profile_data["Price"],
+                    x=profile_data["Vol Traded"],
+                    orientation='h',
+                    name="Volume (Shares)",
+                    marker_color='rgba(99, 110, 250, 0.8)', # Vivid Blue
+                    xaxis='x'
+                ))
+                # Add Time Bar (Top Axis)
+                fig_p.add_trace(go.Bar(
+                    y=profile_data["Price"],
+                    x=profile_data["Stay (Mins)"],
+                    orientation='h',
+                    name="Minutes Stayed",
+                    marker_color='rgba(239, 85, 59, 0.6)', # Semi-transparent Red
+                    xaxis='x2'
+                ))
+                fig_p.update_layout(barmode='overlay')
+            else:
+                target_col = "Vol Traded" if view_mode == "Volume" else "Stay (Mins)"
+                unit = "Shares" if view_mode == "Volume" else "Mins"
+                bar_color = "#636EFA" if view_mode == "Volume" else "#EF553B"
+                
+                fig_p.add_trace(go.Bar(
+                    y=profile_data["Price"],
+                    x=profile_data[target_col],
+                    orientation='h',
+                    marker_color=bar_color,
+                    name=view_mode,
+                    hovertemplate="<b>Price: %{y}</b><br>" + f"{view_mode}: " + "%{x}<extra></extra>"
+                ))
+
             fig_p.update_layout(
                 template="plotly_dark",
                 height=chart_height,
-                xaxis=dict(title=f"Total {view_mode} ({unit})"),
+                xaxis=dict(title="Volume Traded (Shares)", titlefont=dict(color="#636EFA"), tickfont=dict(color="#636EFA")),
+                xaxis2=dict(
+                    title="Stay Duration (Minutes)", 
+                    titlefont=dict(color="#EF553B"), 
+                    tickfont=dict(color="#EF553B"), 
+                    overlaying='x', 
+                    side='top'
+                ) if view_mode == "Overlap" else None,
                 yaxis=dict(title="Price Level (BDT)", type='category'),
-                margin=dict(l=10, r=10, t=20, b=20)
+                margin=dict(l=10, r=10, t=100 if view_mode == "Overlap" else 30, b=20),
+                legend=dict(orientation="h", yanchor="bottom", y=1.1, xanchor="right", x=1)
             )
             st.plotly_chart(fig_p, use_container_width=True)
 
             st.divider()
 
-            # 2. HISTORY CHART (NOW BELOW)
+            # --- 2. HISTORY CHART (BELOW) ---
             st.subheader(f"⏱️ Price/Volume History: {selected_stock}")
             df_sub = raw_df[raw_df['TRADING CODE'] == selected_stock]
             fig_h = go.Figure()
-            fig_h.add_trace(go.Scatter(x=df_sub['captured_at'], y=df_sub['LTP*'], name="Price", line=dict(color='#00CC96', width=2)))
+            fig_h.add_trace(go.Scatter(x=df_sub['captured_at'], y=df_sub['LTP*'], name="Price", line=dict(color='#00CC96', width=2.5)))
             fig_h.add_trace(go.Bar(x=df_sub['captured_at'], y=df_sub['VOLUME'], name="Volume", yaxis="y2", opacity=0.2, marker_color='#636EFA'))
             
             fig_h.update_layout(
                 template="plotly_dark", 
                 height=450,
                 yaxis=dict(title="LTP* (Price)"),
-                yaxis2=dict(title="Total Volume", overlaying="y", side="right"),
+                yaxis2=dict(title="Cumulative Volume", overlaying="y", side="right"),
                 margin=dict(l=10, r=10, t=20, b=20),
                 legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center")
             )
@@ -174,5 +211,6 @@ if not raw_df.empty:
 else:
     st.warning("Waiting for data from MongoDB...")
 
+# --- 8. FOOTER ---
 st.divider()
 st.caption(f"Showing data from {display_start} to {display_end} (Dhaka Time) | Database: UTC")
