@@ -56,9 +56,21 @@ except Exception as e:
     st.stop()
 
 
+# ---------------- TOP HEADER ----------------
+now_dhaka = datetime.now(dhaka_tz)
+col_h1, col_h2 = st.columns([2, 1])
+
+with col_h1:
+    st.title("📊 DSE Alpha Tracker")
+    st.markdown(f"**Market Time:** `{now_dhaka.strftime('%H:%M:%S')}`")
+
+with col_h2:
+    st.write("")
+    st.success(f"🟢 **Live** | Tracking {now_dhaka.strftime('%d %b %Y')}")
+
+
 # ---------------- SIDEBAR FILTERS ----------------
 st.sidebar.header("⏳ Filter Data")
-now_dhaka = datetime.now(dhaka_tz)
 sel_date = st.sidebar.date_input("Select Date", now_dhaka)
 
 t_start, t_end = st.sidebar.slider(
@@ -118,10 +130,63 @@ if not raw_df.empty:
                     "Vol Traded": vol_diff, "Start": start_t.strftime("%H:%M"), "End": end_t.strftime("%H:%M"),
                 })
 
+# Safety: Create empty DataFrame if no summary exists
 if summary:
     analysis_df = pd.DataFrame(summary).sort_values("Stay (Mins)", ascending=False)
 else:
     analysis_df = pd.DataFrame(columns=["Stock", "Price", "Stay (Mins)", "Vol Traded", "Start", "End"])
 
 
-# ---------------- MAIN VIEW
+# ---------------- TOP INTENSITY MAP ----------------
+st.subheader("🎯 Market-Wide Absorption Intensity")
+fig_intensity = go.Figure()
+if not analysis_df.empty:
+    fig_intensity.add_trace(go.Scatter(
+        x=analysis_df["Stay (Mins)"], y=analysis_df["Vol Traded"], mode='markers+text',
+        text=analysis_df["Stock"], textposition="top center",
+        marker=dict(size=15, color=analysis_df["Stay (Mins)"], colorscale='Viridis', showscale=True)
+    ))
+fig_intensity.update_layout(template="plotly_dark", height=400, xaxis_title="Stay Duration (Mins)", yaxis_title="Volume Absorbed")
+st.plotly_chart(fig_intensity, use_container_width=True)
+
+st.divider()
+
+# ---------------- RANKED TABLE ----------------
+st.subheader("📋 Ranked Price Stays")
+st.dataframe(analysis_df, use_container_width=True, hide_index=True)
+
+st.divider()
+
+# ---------------- DETAILED VIEW ----------------
+stock_list = sorted(analysis_df["Stock"].unique()) if not analysis_df.empty else sorted(raw_df["TRADING CODE"].unique()) if not raw_df.empty else ["No Data"]
+selected_stock = st.selectbox("🔍 Select Stock for Detailed View", stock_list)
+
+if selected_stock != "No Data":
+    # Market Profile
+    stock_summary = analysis_df[analysis_df["Stock"] == selected_stock]
+    if not stock_summary.empty:
+        profile_data = stock_summary.groupby("Price").agg({"Vol Traded": "sum", "Stay (Mins)": "sum"}).reset_index().sort_values("Price")
+    else:
+        profile_data = pd.DataFrame(columns=["Price", "Vol Traded", "Stay (Mins)"])
+
+    st.subheader(f"📊 Market Profile — {selected_stock}")
+    fig_p = make_subplots(specs=[[{"secondary_y": False}]])
+    fig_p.add_trace(go.Bar(y=profile_data["Price"], x=profile_data["Vol Traded"], orientation="h", name="Volume", marker_color="#636EFA"))
+    fig_p.add_trace(go.Bar(y=profile_data["Price"], x=profile_data["Stay (Mins)"], orientation="h", name="Time", marker_color="#EF553B", xaxis="x2"))
+    fig_p.update_layout(template="plotly_dark", barmode="group", height=400,
+                        xaxis2=dict(overlaying="x", side="top", showgrid=False),
+                        legend=dict(orientation="h", y=1.2, x=0.5, xanchor="center"))
+    st.plotly_chart(fig_p, use_container_width=True)
+
+    # Price History
+    df_sub = raw_df[raw_df["TRADING CODE"] == selected_stock] if not raw_df.empty else pd.DataFrame()
+    st.subheader(f"⏱️ Price / Volume History — {selected_stock}")
+    fig_hist = go.Figure()
+    if not df_sub.empty:
+        fig_hist.add_trace(go.Scatter(x=df_sub["captured_at"], y=df_sub["LTP*"], name="Price", line=dict(color="#00CC96")))
+        fig_hist.add_trace(go.Bar(x=df_sub['captured_at'], y=df_sub['VOLUME'], name="Volume", yaxis="y2", opacity=0.3))
+    fig_hist.update_layout(template="plotly_dark", height=400, yaxis2=dict(overlaying="y", side="right"))
+    st.plotly_chart(fig_hist, use_container_width=True)
+
+st.divider()
+st.caption(f"Range: {display_start} to {display_end} | Dhaka Local Time")
