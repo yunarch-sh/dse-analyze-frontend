@@ -106,69 +106,76 @@ if not raw_df.empty:
     if summary:
         analysis_df = pd.DataFrame(summary).sort_values("Stay (Mins)", ascending=False)
         
-        st.success(f"🏆 **Top Consolidation:** **{analysis_df.iloc[0]['Stock']}**")
+        # --- 🏆 TOP SUMMARY ---
+        top_stay = analysis_df.iloc[0]
+        st.success(f"🏆 **Top Consolidation:** **{top_stay['Stock']}** at **{top_stay['Price']} BDT**")
+
+        # --- 📋 RANKED TABLE ---
         st.subheader("📋 Ranked Price Stays")
         st.dataframe(analysis_df, use_container_width=True, hide_index=True)
         
-        # --- 6. INTENSITY CHART (Redesigned for Stability) ---
-        st.subheader("🎯 Market Intensity: Price vs Volume & Stay")
-        
-        fig_rel = go.Figure()
-
-        # Volume Points
-        fig_rel.add_trace(go.Scatter(
-            x=analysis_df["Vol Traded"], 
-            y=analysis_df["Price"],
-            mode='markers+text', 
-            name='Volume Traded',
-            text=analysis_df["Stock"], 
-            textposition="top center",
-            marker=dict(color='#636EFA', size=12),
-            xaxis='x'
-        ))
-
-        # Stay Duration Points
-        fig_rel.add_trace(go.Scatter(
-            x=analysis_df["Stay (Mins)"], 
-            y=analysis_df["Price"],
-            mode='markers', 
-            name='Minutes Stayed',
-            marker=dict(color='#EF553B', size=10, symbol='diamond'),
-            xaxis='x2'
-        ))
-
-        # Explicit layout configuration to avoid Python 3.14 dict issues
-        fig_rel.update_layout(
-            template="plotly_dark",
-            height=500,
-            margin=dict(t=80, b=50, l=50, r=50),
-            legend=dict(orientation="h", y=1.15),
-            yaxis=dict(title="Price (BDT)"),
-            xaxis=dict(title="Volume Traded (Blue)", color="#636EFA"),
-            xaxis2=dict(
-                title="Minutes Stayed (Red)", 
-                color="#EF553B",
-                overlaying='x', 
-                side='top'
-            )
-        )
-        
-        st.plotly_chart(fig_rel, use_container_width=True)
-
-        # --- 7. INDIVIDUAL DETAIL ---
         st.divider()
-        selected_stock = st.selectbox("Select stock for detail:", analysis_df['Stock'].unique())
-        if selected_stock:
-            df_sub = raw_df[raw_df['TRADING CODE'] == selected_stock]
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=df_sub['captured_at'], y=df_sub['LTP*'], name="Price", line=dict(color='#00CC96')))
-            fig.add_trace(go.Bar(x=df_sub['captured_at'], y=df_sub['VOLUME'], name="Volume", yaxis="y2", opacity=0.3))
-            fig.update_layout(template="plotly_dark", yaxis2=dict(overlaying="y", side="right"))
-            st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("No stays detected.")
-else:
-    st.warning("Waiting for data...")
 
+        # --- 📈 STOCK SELECTION ---
+        selected_stock = st.selectbox("🔍 Select Stock for Detailed Analysis:", analysis_df['Stock'].unique())
+
+        if selected_stock:
+            col1, col2 = st.columns([1, 1])
+
+            with col1:
+                # --- 6. HORIZONTAL VOLUME PROFILE (EXCEL STYLE) ---
+                st.subheader(f"📊 Volume Profile: {selected_stock}")
+                
+                stock_summary = analysis_df[analysis_df['Stock'] == selected_stock].copy()
+                # Aggregate Volume and Minutes by Price Node
+                profile_data = stock_summary.groupby("Price").agg({
+                    "Vol Traded": "sum",
+                    "Stay (Mins)": "sum"
+                }).reset_index().sort_values("Price", ascending=True)
+
+                fig_profile = go.Figure()
+                fig_profile.add_trace(go.Bar(
+                    y=profile_data["Price"],
+                    x=profile_data["Vol Traded"],
+                    orientation='h',
+                    name="Volume Activity",
+                    marker=dict(color='#636EFA', line=dict(color='white', width=0.5)),
+                    customdata=profile_data["Stay (Mins)"],
+                    hovertemplate="<b>Price: %{y} BDT</b><br>Volume: %{x:,.0f}<br>Time: %{customdata}m<extra></extra>"
+                ))
+
+                fig_profile.update_layout(
+                    template="plotly_dark",
+                    height=500,
+                    xaxis=dict(title="Total Volume at Price"),
+                    yaxis=dict(title="Price Level (BDT)", type='category', tickmode='linear'),
+                    margin=dict(l=10, r=10, t=20, b=20)
+                )
+                st.plotly_chart(fig_profile, use_container_width=True)
+
+            with col2:
+                # --- 7. TIME-SERIES CHART ---
+                st.subheader(f"⏱️ Price/Volume History: {selected_stock}")
+                df_sub = raw_df[raw_df['TRADING CODE'] == selected_stock]
+                
+                fig_ts = go.Figure()
+                fig_ts.add_trace(go.Scatter(x=df_sub['captured_at'], y=df_sub['LTP*'], name="Price", line=dict(color='#00CC96', width=2)))
+                fig_ts.add_trace(go.Bar(x=df_sub['captured_at'], y=df_sub['VOLUME'], name="Volume", yaxis="y2", opacity=0.3, marker_color='#636EFA'))
+                
+                fig_ts.update_layout(
+                    template="plotly_dark",
+                    height=500,
+                    yaxis=dict(title="Price (BDT)"),
+                    yaxis2=dict(title="Volume", overlaying="y", side="right"),
+                    legend=dict(orientation="h", y=1.1),
+                    margin=dict(l=10, r=10, t=20, b=20)
+                )
+                st.plotly_chart(fig_ts, use_container_width=True)
+    else:
+        st.info("No volume-increasing stays detected in this range.")
+else:
+    st.warning("Waiting for market data... Ensure your collector is running.")
+
+# --- 8. FOOTER ---
 st.divider()
-st.caption(f"Dhaka Time: {display_start} to {display_end}")
+st.caption(f"Showing data from {display_start} to {display_end} (Dhaka Time) | Database: UTC")
