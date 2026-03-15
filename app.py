@@ -111,60 +111,69 @@ if not raw_df.empty:
         
         st.divider()
 
-        # --- 📈 STOCK SELECTION & TOGGLE ---
-        c1, c2 = st.columns([2, 1])
-        with c1:
-            selected_stock = st.selectbox("🔍 Select Stock for Detailed View:", analysis_df['Stock'].unique())
-        with c2:
-            # Overlap removed as requested
-            view_mode = st.radio("📊 Profile Bar Mode:", ["Volume", "Time Stayed"], horizontal=True)
+        # --- 📈 STOCK SELECTION ---
+        selected_stock = st.selectbox("🔍 Select Stock for Detailed View:", analysis_df['Stock'].unique())
 
         if selected_stock:
-            # 1. PROFILE CHART (TOP)
+            # Aggregate data for the profile
             stock_summary = analysis_df[analysis_df['Stock'] == selected_stock].copy()
             profile_data = stock_summary.groupby("Price").agg({
                 "Vol Traded": "sum",
                 "Stay (Mins)": "sum"
             }).reset_index().sort_values("Price", ascending=True)
 
-            target_col = "Vol Traded" if view_mode == "Volume" else "Stay (Mins)"
-            unit = "Shares" if view_mode == "Volume" else "Mins"
-            bar_color = "#636EFA" if view_mode == "Volume" else "#EF553B"
+            # --- 6. DUAL COMPARISON PROFILE (NEW) ---
+            st.subheader(f"📊 Market Profile Shape: {selected_stock}")
+            
+            fig_compare = go.Figure()
 
-            # Dynamic height so bars stay thick
-            chart_height = 150 + (len(profile_data) * 40)
-
-            st.subheader(f"📊 {view_mode} Profile: {selected_stock}")
-            fig_p = go.Figure()
-            fig_p.add_trace(go.Bar(
+            # Volume Bar (Primary X-Axis)
+            fig_compare.add_trace(go.Bar(
                 y=profile_data["Price"],
-                x=profile_data[target_col],
+                x=profile_data["Vol Traded"],
+                name="Volume Traded",
                 orientation='h',
-                marker_color=bar_color,
-                hovertemplate="<b>Price: %{y}</b><br>" + f"{view_mode}: " + "%{x}<extra></extra>"
+                marker_color='#636EFA',
+                xaxis='x1'
             ))
-            fig_p.update_layout(
+
+            # Stay Time Bar (Secondary X-Axis)
+            fig_compare.add_trace(go.Bar(
+                y=profile_data["Price"],
+                x=profile_data["Stay (Mins)"],
+                name="Minutes Stayed",
+                orientation='h',
+                marker_color='#EF553B',
+                xaxis='x2'
+            ))
+
+            fig_compare.update_layout(
                 template="plotly_dark",
-                height=chart_height,
-                xaxis=dict(title=f"Total {view_mode} ({unit})"),
+                barmode='group', # Puts the bars side-by-side for each price level
+                height=150 + (len(profile_data) * 50),
                 yaxis=dict(title="Price Level (BDT)", type='category'),
-                margin=dict(l=10, r=10, t=20, b=20)
+                xaxis=dict(title="Volume", titlefont=dict(color="#636EFA"), tickfont=dict(color="#636EFA")),
+                xaxis2=dict(
+                    title="Stay (Mins)", titlefont=dict(color="#EF553B"), 
+                    tickfont=dict(color="#EF553B"), overlaying='x', side='top'
+                ),
+                legend=dict(orientation="h", yanchor="bottom", y=1.1, xanchor="right", x=1),
+                margin=dict(l=10, r=10, t=100, b=20)
             )
-            st.plotly_chart(fig_p, use_container_width=True)
+            st.plotly_chart(fig_compare, use_container_width=True)
 
             st.divider()
 
-            # 2. HISTORY CHART (BOTTOM)
+            # --- 7. HISTORY CHART (BELOW) ---
             st.subheader(f"⏱️ Price/Volume History: {selected_stock}")
             df_sub = raw_df[raw_df['TRADING CODE'] == selected_stock]
             fig_h = go.Figure()
-            fig_h.add_trace(go.Scatter(x=df_sub['captured_at'], y=df_sub['LTP*'], name="Price", line=dict(color='#00CC96', width=2)))
+            fig_h.add_trace(go.Scatter(x=df_sub['captured_at'], y=df_sub['LTP*'], name="Price", line=dict(color='#00CC96', width=2.5)))
             fig_h.add_trace(go.Bar(x=df_sub['captured_at'], y=df_sub['VOLUME'], name="Volume", yaxis="y2", opacity=0.2, marker_color='#636EFA'))
             
             fig_h.update_layout(
-                template="plotly_dark", 
-                height=450,
-                yaxis=dict(title="LTP* (Price)"),
+                template="plotly_dark", height=450,
+                yaxis=dict(title="Price"),
                 yaxis2=dict(title="Total Volume", overlaying="y", side="right"),
                 margin=dict(l=10, r=10, t=20, b=20),
                 legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center")
