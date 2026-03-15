@@ -82,8 +82,8 @@ st.title("⏳ DSE Alpha Tracker")
 
 if not raw_df.empty:
     summary = []
-    available_stocks = raw_df['TRADING CODE'].unique()
     
+    # Process stays
     for stock, group in raw_df.groupby("TRADING CODE"):
         if len(group) < 2: continue
         group = group.copy()
@@ -115,16 +115,18 @@ if not raw_df.empty:
         st.subheader("📋 Ranked Price Stays")
         st.dataframe(analysis_df, use_container_width=True, hide_index=True)
         
-        # --- 6. NEW RELATIONSHIP CHART ---
+        # --- 6. NEW RELATIONSHIP CHART (The Fix) ---
         st.subheader("🎯 Market Intensity: Price vs Volume & Stay")
+        
         fig_rel = go.Figure()
 
         # Trace 1: LTP vs Volume Traded (Bottom X)
         fig_rel.add_trace(go.Scatter(
             x=analysis_df["Vol Traded"], y=analysis_df["Price"],
-            mode='markers', name='Volume Traded',
+            mode='markers+text', name='Volume Traded',
+            text=analysis_df["Stock"], textposition="top center",
             marker=dict(color='#636EFA', size=12, opacity=0.7),
-            xaxis='x1', hovertext=analysis_df["Stock"]
+            xaxis='x1'
         ))
 
         # Trace 2: LTP vs Stay Duration (Top X)
@@ -132,11 +134,23 @@ if not raw_df.empty:
             x=analysis_df["Stay (Mins)"], y=analysis_df["Price"],
             mode='markers', name='Minutes Stayed',
             marker=dict(color='#EF553B', size=10, symbol='diamond'),
-            xaxis='x2', hovertext=analysis_df["Stock"]
+            xaxis='x2'
         ))
 
         fig_rel.update_layout(
             template="plotly_dark",
             yaxis=dict(title="Price (LTP*) BDT"),
             xaxis=dict(title="Volume Traded", titlefont=dict(color="#636EFA"), tickfont=dict(color="#636EFA")),
-            xaxis2=dict(title="Stay Duration (Minutes)", titlefont=dict(color="#EF5
+            xaxis2=dict(title="Stay Duration (Minutes)", titlefont=dict(color="#EF553B"), tickfont=dict(color="#EF553B"), overlaying='x', side='top'),
+            legend=dict(orientation="h", yanchor="bottom", y=1.1, xanchor="right", x=1),
+            hovermode="closest", height=500
+        )
+        st.plotly_chart(fig_rel, use_container_width=True)
+
+        # 📈 INDIVIDUAL DETAIL
+        selected_stock = st.selectbox("Select stock for time-series detail:", analysis_df['Stock'].unique())
+        if selected_stock:
+            df_sub = raw_df[raw_df['TRADING CODE'] == selected_stock]
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=df_sub['captured_at'], y=df_sub['LTP*'], name="Price", line=dict(color='#00CC96', width=3)))
+            fig.add_trace(go.
