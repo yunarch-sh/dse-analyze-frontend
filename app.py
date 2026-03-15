@@ -81,72 +81,76 @@ def get_filtered_data(start, end):
 
 raw_df = get_filtered_data(dt_start, dt_end)
 
-# --- 5. MAIN LOGIC: VOLUME CHANGES WITH CONSTANT LTP ---
-st.title("🚀 DSE volume/Price Divergence")
+# --- 5. MAIN LOGIC: LONGEST STAY WITH VOLUME DIVERGENCE ---
+st.title("⏳ Longest Price 'Stay' with Volume Activity")
 
 if not raw_df.empty:
-    # Group by stock to check for changes
     summary = []
     for stock, group in raw_df.groupby("TRADING CODE"):
         if len(group) < 2: continue
         
-        # Check if LTP is constant but Volume has changed
-        ltp_constant = group['LTP*'].nunique() == 1
-        vol_changed = group['VOLUME'].iloc[-1] != group['VOLUME'].iloc[0]
+        # Identify "Stays": Groups of consecutive rows with the same price
+        # We calculate how long the price stayed and how much volume moved during that stay
+        group = group.copy()
+        group['price_changed'] = group['LTP*'] != group['LTP*'].shift()
+        group['stay_id'] = group['price_changed'].cumsum()
         
-        if ltp_constant and vol_changed:
-            summary.append({
-                "Stock": stock,
-                "Price": group['LTP*'].iloc[0],
-                "Starting Vol": int(group['VOLUME'].iloc[0]),
-                "Current Vol": int(group['VOLUME'].iloc[-1]),
-                "Vol Shift": int(group['VOLUME'].iloc[-1] - group['VOLUME'].iloc[0])
-            })
-    
+        for stay_id, stay_group in group.groupby('stay_id'):
+            if len(stay_group) < 2: continue
+            
+            price = stay_group['LTP*'].iloc[0]
+            start_time = stay_group['captured_at'].iloc[0]
+            end_time = stay_group['captured_at'].iloc[-1]
+            duration = (end_time - start_time).total_seconds() / 60 # in minutes
+            
+            vol_start = stay_group['VOLUME'].iloc[0]
+            vol_end = stay_group['VOLUME'].iloc[-1]
+            vol_diff = vol_end - vol_start
+            
+            # We only care if volume actually moved during this stay
+            if vol_diff > 0:
+                summary.append({
+                    "Stock": stock,
+                    "Price": price,
+                    "Stay Duration (Mins)": round(duration, 1),
+                    "Volume Traded": int(vol_diff),
+                    "Start Time": start_time.strftime('%H:%M'),
+                    "End Time": end_time.strftime('%H:%M')
+                })
+
     if summary:
-        st.subheader("⚠️ Stocks with Volume Shift & Constant LTP")
-        sum_df = pd.DataFrame(summary).sort_values("Vol Shift", ascending=False)
+        analysis_df = pd.DataFrame(summary).sort_values("Stay Duration (Mins)", ascending=False)
         
-        # Selection
-        selected_stock = st.selectbox("Select a stock to see the Detail Graph", sum_df['Stock'])
+        # Highlight the "Champion"
+        top_stay = analysis_df.iloc[0]
+        st.success(f"🏆 **Top Consolidation:** **{top_stay['Stock']}** stayed at **{top_stay['Price']} BDT** for **{top_stay['Stay Duration (Mins)']} minutes**, moving **{top_stay['Volume Traded']:,} shares**.")
+
+        # Display Table
+        st.subheader("📋 Ranked Price Stays (with Volume Growth)")
+        st.dataframe(analysis_df, use_container_width=True, hide_index=True)
+        
+        # Selection for Graph
+        selected_stock = st.selectbox("Select stock to visualize detail:", analysis_df['Stock'].unique())
     else:
-        st.info("No stocks found where volume changed with constant price in this range.")
-        selected_stock = st.selectbox("Or Search any Stock", raw_df['TRADING CODE'].unique())
-        
-    # --- 6. DETAIL GRAPH (DUAL AXIS) ---
+        st.info("No volume-increasing stays detected in this time range.")
+        selected_stock = st.selectbox("Search any Stock:", raw_df['TRADING CODE'].unique())
+
+    # --- 6. DUAL AXIS GRAPH ---
     if selected_stock:
         df_sub = raw_df[raw_df['TRADING CODE'] == selected_stock]
-        
         fig = go.Figure()
-        # Add LTP Line
-        fig.add_trace(go.Scatter(
-            x=df_sub['captured_at'], y=df_sub['LTP*'],
-            name="LTP (Price)", mode='lines+markers',
-            line=dict(color='royalblue', width=3)
-        ))
         
-        # Add Volume Bar (Secondary Axis)
-        fig.add_trace(go.Bar(
-            x=df_sub['captured_at'], y=df_sub['VOLUME'],
-            name="Volume", opacity=0.3,
-            yaxis="y2", marker_color='gray'
-        ))
+        fig.add_trace(go.Scatter(x=df_sub['captured_at'], y=df_sub['LTP*'], name="Price", line=dict(color='#00CC96', width=3)))
+        fig.add_trace(go.Bar(x=df_sub['captured_at'], y=df_sub['VOLUME'], name="Volume", yaxis="y2", opacity=0.3, marker_color='#636EFA'))
 
         fig.update_layout(
-            title=f"Detailed Movement for {selected_stock}",
-            xaxis_title="Time (Dhaka)",
-            yaxis_title="Price (BDT)",
+            title=f"Price/Volume Analysis: {selected_stock}",
+            yaxis=dict(title="Price (BDT)"),
             yaxis2=dict(title="Volume", overlaying="y", side="right"),
             template="plotly_dark",
             hovermode="x unified"
         )
         st.plotly_chart(fig, use_container_width=True)
-        
-        # Stat cards
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Current Price", f"{df_sub['LTP*'].iloc[-1]} BDT")
-        c2.metric("Total Volume", f"{int(df_sub['VOLUME'].iloc[-1]):,}")
-        c3.metric("Records Found", len(df_sub))
 
 else:
     st.warning("No data found for the selected range. Ensure your collector is running.")
