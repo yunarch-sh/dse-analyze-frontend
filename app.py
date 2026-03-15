@@ -3,6 +3,7 @@ import pandas as pd
 from pymongo import MongoClient
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from datetime import datetime, time
 import pytz
 from streamlit_autorefresh import st_autorefresh
@@ -115,49 +116,54 @@ if not raw_df.empty:
         selected_stock = st.selectbox("🔍 Select Stock for Detailed View:", analysis_df['Stock'].unique())
 
         if selected_stock:
-            # Aggregate data for the profile
             stock_summary = analysis_df[analysis_df['Stock'] == selected_stock].copy()
             profile_data = stock_summary.groupby("Price").agg({
                 "Vol Traded": "sum",
                 "Stay (Mins)": "sum"
             }).reset_index().sort_values("Price", ascending=True)
 
-            # --- 6. DUAL COMPARISON PROFILE (NEW) ---
-            st.subheader(f"📊 Market Profile Shape: {selected_stock}")
+            # --- 6. DUAL COMPARISON PROFILE (B, P, D, B Shapes) ---
+            st.subheader(f"📊 Market Profile: {selected_stock}")
             
-            fig_compare = go.Figure()
+            # Create a figure with a secondary x-axis
+            fig_compare = make_subplots(specs=[[{"secondary_y": False}]])
 
-            # Volume Bar (Primary X-Axis)
+            # Volume Bar (Bottom Axis - xaxis1)
             fig_compare.add_trace(go.Bar(
                 y=profile_data["Price"],
                 x=profile_data["Vol Traded"],
-                name="Volume Traded",
+                name="Volume",
                 orientation='h',
-                marker_color='#636EFA',
+                marker_color='rgba(99, 110, 250, 0.8)',
                 xaxis='x1'
             ))
 
-            # Stay Time Bar (Secondary X-Axis)
+            # Stay Time Bar (Top Axis - xaxis2)
             fig_compare.add_trace(go.Bar(
                 y=profile_data["Price"],
                 x=profile_data["Stay (Mins)"],
-                name="Minutes Stayed",
+                name="Time (Mins)",
                 orientation='h',
-                marker_color='#EF553B',
+                marker_color='rgba(239, 85, 59, 0.6)',
                 xaxis='x2'
             ))
 
+            # Update Layout with explicit axis definitions to prevent ValueErrors
             fig_compare.update_layout(
                 template="plotly_dark",
-                barmode='group', # Puts the bars side-by-side for each price level
-                height=150 + (len(profile_data) * 50),
+                barmode='group',
+                height=200 + (len(profile_data) * 40),
                 yaxis=dict(title="Price Level (BDT)", type='category'),
-                xaxis=dict(title="Volume", titlefont=dict(color="#636EFA"), tickfont=dict(color="#636EFA")),
+                xaxis=dict(title="Total Volume", titlefont=dict(color="#636EFA"), tickfont=dict(color="#636EFA")),
                 xaxis2=dict(
-                    title="Stay (Mins)", titlefont=dict(color="#EF553B"), 
-                    tickfont=dict(color="#EF553B"), overlaying='x', side='top'
+                    title="Total Stay (Minutes)", 
+                    titlefont=dict(color="#EF553B"), 
+                    tickfont=dict(color="#EF553B"), 
+                    overlaying='x', 
+                    side='top',
+                    showgrid=False
                 ),
-                legend=dict(orientation="h", yanchor="bottom", y=1.1, xanchor="right", x=1),
+                legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="right", x=1),
                 margin=dict(l=10, r=10, t=100, b=20)
             )
             st.plotly_chart(fig_compare, use_container_width=True)
@@ -168,13 +174,13 @@ if not raw_df.empty:
             st.subheader(f"⏱️ Price/Volume History: {selected_stock}")
             df_sub = raw_df[raw_df['TRADING CODE'] == selected_stock]
             fig_h = go.Figure()
-            fig_h.add_trace(go.Scatter(x=df_sub['captured_at'], y=df_sub['LTP*'], name="Price", line=dict(color='#00CC96', width=2.5)))
+            fig_h.add_trace(go.Scatter(x=df_sub['captured_at'], y=df_sub['LTP*'], name="Price", line=dict(color='#00CC96', width=2)))
             fig_h.add_trace(go.Bar(x=df_sub['captured_at'], y=df_sub['VOLUME'], name="Volume", yaxis="y2", opacity=0.2, marker_color='#636EFA'))
             
             fig_h.update_layout(
-                template="plotly_dark", height=450,
+                template="plotly_dark", height=400,
                 yaxis=dict(title="Price"),
-                yaxis2=dict(title="Total Volume", overlaying="y", side="right"),
+                yaxis2=dict(title="Cumulative Volume", overlaying="y", side="right"),
                 margin=dict(l=10, r=10, t=20, b=20),
                 legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center")
             )
@@ -185,4 +191,4 @@ else:
     st.warning("Waiting for data from MongoDB...")
 
 st.divider()
-st.caption(f"Showing data from {display_start} to {display_end} (Dhaka Time) | Database: UTC")
+st.caption(f"Showing data from {display_start} to {display_end} (Dhaka Time)")
