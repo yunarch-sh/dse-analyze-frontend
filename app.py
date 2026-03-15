@@ -144,6 +144,59 @@ if not raw_df.empty:
 else:
     st.warning("No data found for the selected range.")
 
+    # --- 6. RELATIONSHIP CHART: Price vs (Volume & Stay) ---
+st.subheader("🎯 Market Intensity: Price vs Volume & Stay")
+
+if not analysis_df.empty:
+    fig_rel = go.Figure()
+
+    # Trace 1: LTP vs Volume Traded (Bottom X-Axis)
+    fig_rel.add_trace(go.Scatter(
+        x=analysis_df["Vol Traded"],
+        y=analysis_df["Price"],
+        mode='markers',
+        name='Volume Traded',
+        marker=dict(color='#636EFA', size=12, opacity=0.7),
+        xaxis='x1',
+        hovertext=analysis_df["Stock"]
+    ))
+
+    # Trace 2: LTP vs Stay Duration (Top X-Axis)
+    fig_rel.add_trace(go.Scatter(
+        x=analysis_df["Stay (Mins)"],
+        y=analysis_df["Price"],
+        mode='markers',
+        name='Minutes Stayed',
+        marker=dict(color='#EF553B', size=10, symbol='diamond'),
+        xaxis='x2',
+        hovertext=analysis_df["Stock"]
+    ))
+
+    # 6.5
+    fig_rel.update_layout(
+        template="plotly_dark",
+        yaxis=dict(title="Price (LTP*) BDT", side="left"),
+        xaxis=dict(
+            title="Volume Traded",
+            titlefont=dict(color="#636EFA"),
+            tickfont=dict(color="#636EFA")
+        ),
+        xaxis2=dict(
+            title="Stay Duration (Minutes)",
+            titlefont=dict(color="#EF553B"),
+            tickfont=dict(color="#EF553B"),
+            overlaying='x',
+            side='top'
+        ),
+        legend=dict(orientation="h", yanchor="bottom", y=1.1, xanchor="right", x=1),
+        hovermode="closest",
+        height=600
+    )
+
+    st.plotly_chart(fig_rel, use_container_width=True)
+else:
+    st.info("Not enough data to generate the Intensity Chart yet.")
+
 # --- 7. FOOTER ---
 st.divider()
 st.caption(f"Showing data from {display_start} to {display_end} (Dhaka Time) | Database: UTC")
