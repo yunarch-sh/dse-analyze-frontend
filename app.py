@@ -17,7 +17,6 @@ st.set_page_config(
 
 st_autorefresh(interval=60000, key="refresh")
 
-
 # ---------------- AUTH SYSTEM ----------------
 def check_password():
     if "password_correct" not in st.session_state:
@@ -41,7 +40,6 @@ def check_password():
 if not check_password():
     st.stop()
 
-
 # ---------------- DATABASE CONNECTION ----------------
 @st.cache_resource
 def init_connection():
@@ -55,7 +53,6 @@ except Exception as e:
     st.error(f"MongoDB Connection Failed: {e}")
     st.stop()
 
-
 # ---------------- TOP HEADER ----------------
 now_dhaka = datetime.now(dhaka_tz)
 col_h1, col_h2 = st.columns([2, 1])
@@ -67,7 +64,6 @@ with col_h1:
 with col_h2:
     st.write("")
     st.success(f"🟢 **Live** | Tracking {now_dhaka.strftime('%d %b %Y')}")
-
 
 # ---------------- SIDEBAR FILTERS ----------------
 st.sidebar.header("⏳ Filter Data")
@@ -89,7 +85,6 @@ if st.sidebar.button("Log Out"):
     st.session_state["password_correct"] = False
     st.rerun()
 
-
 # ---------------- DATA FETCH ----------------
 @st.cache_data(ttl=60)
 def get_filtered_data(start, end):
@@ -105,7 +100,6 @@ def get_filtered_data(start, end):
     return df
 
 raw_df = get_filtered_data(dt_start, dt_end)
-
 
 # ---------------- PRICE STAY ANALYSIS ----------------
 summary = []
@@ -126,8 +120,12 @@ if not raw_df.empty:
 
             if vol_diff > 0:
                 summary.append({
-                    "Stock": stock, "Price": price, "Stay (Mins)": round(duration, 1),
-                    "Vol Traded": vol_diff, "Start": start_t.strftime("%H:%M"), "End": end_t.strftime("%H:%M"),
+                    "Stock": stock,
+                    "Price": price,
+                    "Stay (Mins)": round(duration, 1),
+                    "Vol Traded": vol_diff,
+                    "Start": start_t.strftime("%H:%M"),
+                    "End": end_t.strftime("%H:%M"),
                 })
 
 # Safety: Create empty DataFrame if no summary exists
@@ -136,45 +134,104 @@ if summary:
 else:
     analysis_df = pd.DataFrame(columns=["Stock", "Price", "Stay (Mins)", "Vol Traded", "Start", "End"])
 
-
-# ---------------- TOP INTENSITY MAP ----------------
-
-
 # ---------------- RANKED TABLE ----------------
 st.subheader("📋 Ranked Price Stays")
 st.dataframe(analysis_df, use_container_width=True, hide_index=True)
-
 st.divider()
 
 # ---------------- DETAILED VIEW ----------------
-stock_list = sorted(analysis_df["Stock"].unique()) if not analysis_df.empty else sorted(raw_df["TRADING CODE"].unique()) if not raw_df.empty else ["No Data"]
+stock_list = (
+    sorted(analysis_df["Stock"].unique())
+    if not analysis_df.empty
+    else sorted(raw_df["TRADING CODE"].unique())
+    if not raw_df.empty
+    else ["No Data"]
+)
 selected_stock = st.selectbox("🔍 Select Stock for Detailed View", stock_list)
 
 if selected_stock != "No Data":
-    # Market Profile
+    # Market Profile: Stacked Vertical Bars
     stock_summary = analysis_df[analysis_df["Stock"] == selected_stock]
     if not stock_summary.empty:
-        profile_data = stock_summary.groupby("Price").agg({"Vol Traded": "sum", "Stay (Mins)": "sum"}).reset_index().sort_values("Price")
+        profile_data = (
+            stock_summary.groupby("Price")
+            .agg({"Vol Traded": "sum", "Stay (Mins)": "sum"})
+            .reset_index()
+            .sort_values("Price")
+        )
     else:
         profile_data = pd.DataFrame(columns=["Price", "Vol Traded", "Stay (Mins)"])
 
     st.subheader(f"📊 Market Profile — {selected_stock}")
-    fig_p = make_subplots(specs=[[{"secondary_y": False}]])
-    fig_p.add_trace(go.Bar(y=profile_data["Price"], x=profile_data["Vol Traded"], orientation="h", name="Volume", marker_color="#636EFA"))
-    fig_p.add_trace(go.Bar(y=profile_data["Price"], x=profile_data["Stay (Mins)"], orientation="h", name="Time", marker_color="#EF553B", xaxis="x2"))
-    fig_p.update_layout(template="plotly_dark", barmode="group", height=400,
-                        xaxis2=dict(overlaying="x", side="top", showgrid=False),
-                        legend=dict(orientation="h", y=1.2, x=0.5, xanchor="center"))
+    
+    # Stacked vertical bars using 2 rows, shared y-axis
+    fig_p = make_subplots(
+        rows=2, cols=1,
+        shared_yaxes=True,
+        vertical_spacing=0.05,
+        subplot_titles=("Time Stay (Minutes)", "Volume Traded")
+    )
+
+    # Top row: Time Stay
+    fig_p.add_trace(go.Bar(
+        y=profile_data["Price"],
+        x=profile_data["Stay (Mins)"],
+        orientation="h",
+        name="Time Stay",
+        marker_color="#EF553B"
+    ), row=1, col=1)
+
+    # Bottom row: Volume
+    fig_p.add_trace(go.Bar(
+        y=profile_data["Price"],
+        x=profile_data["Vol Traded"],
+        orientation="h",
+        name="Volume",
+        marker_color="#636EFA"
+    ), row=2, col=1)
+
+    # Layout
+    fig_p.update_layout(
+        template="plotly_dark",
+        height=400 + len(profile_data) * 10,
+        showlegend=True,
+        margin=dict(l=10, r=10, t=80, b=20)
+    )
+
+    fig_p.update_yaxes(title="Price (BDT)", row=1, col=1)
+    fig_p.update_yaxes(title="Price (BDT)", row=2, col=1)
+    fig_p.update_xaxes(title="Minutes", row=1, col=1)
+    fig_p.update_xaxes(title="Volume", row=2, col=1)
+
     st.plotly_chart(fig_p, use_container_width=True)
 
-    # Price History
+    # ---------------- PRICE HISTORY ----------------
     df_sub = raw_df[raw_df["TRADING CODE"] == selected_stock] if not raw_df.empty else pd.DataFrame()
     st.subheader(f"⏱️ Price / Volume History — {selected_stock}")
     fig_hist = go.Figure()
     if not df_sub.empty:
-        fig_hist.add_trace(go.Scatter(x=df_sub["captured_at"], y=df_sub["LTP*"], name="Price", line=dict(color="#00CC96")))
-        fig_hist.add_trace(go.Bar(x=df_sub['captured_at'], y=df_sub['VOLUME'], name="Volume", yaxis="y2", opacity=0.3))
-    fig_hist.update_layout(template="plotly_dark", height=400, yaxis2=dict(overlaying="y", side="right"))
+        fig_hist.add_trace(go.Scatter(
+            x=df_sub["captured_at"],
+            y=df_sub["LTP*"],
+            name="Price",
+            line=dict(color="#00CC96")
+        ))
+        fig_hist.add_trace(go.Bar(
+            x=df_sub['captured_at'],
+            y=df_sub['VOLUME'],
+            name="Volume",
+            yaxis="y2",
+            opacity=0.3,
+            marker_color="#636EFA"
+        ))
+    fig_hist.update_layout(
+        template="plotly_dark",
+        height=400,
+        yaxis=dict(title="Price"),
+        yaxis2=dict(overlaying="y", side="right", title="Volume"),
+        legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center"),
+        margin=dict(l=10, r=10, t=20, b=20)
+    )
     st.plotly_chart(fig_hist, use_container_width=True)
 
 st.divider()
