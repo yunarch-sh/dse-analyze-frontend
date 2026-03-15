@@ -3,6 +3,7 @@ import pandas as pd
 from pymongo import MongoClient
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from datetime import datetime, time
 import pytz
 from streamlit_autorefresh import st_autorefresh
@@ -116,11 +117,10 @@ if not raw_df.empty:
         with c1:
             selected_stock = st.selectbox("🔍 Select Stock for Detailed View:", analysis_df['Stock'].unique())
         with c2:
-            # ADDED "Overlap" TO THE LIST BELOW
             view_mode = st.radio("📊 Profile Bar Mode:", ["Volume", "Time Stayed", "Overlap"], horizontal=True)
 
         if selected_stock:
-            # 1. PROFILE CHART
+            # Aggregate data
             stock_summary = analysis_df[analysis_df['Stock'] == selected_stock].copy()
             profile_data = stock_summary.groupby("Price").agg({
                 "Vol Traded": "sum",
@@ -130,53 +130,58 @@ if not raw_df.empty:
             chart_height = 150 + (len(profile_data) * 45)
             st.subheader(f"📊 {view_mode} Profile: {selected_stock}")
             
-            fig_p = go.Figure()
-
-            # Base layout dictionary to avoid ValueError on xaxis2
-            layout_args = {
-                "template": "plotly_dark",
-                "height": chart_height,
-                "yaxis": {"title": "Price Level (BDT)", "type": 'category'},
-                "margin": {"l": 10, "r": 10, "t": 40, "b": 20},
-                "legend": {"orientation": "h", "yanchor": "bottom", "y": 1.1, "xanchor": "right", "x": 1}
-            }
-
+            # --- 🛠️ BUG-PROOF CONSTRUCTION USING SUBPLOTS ---
             if view_mode == "Overlap":
-                # Volume Trace
+                fig_p = make_subplots(specs=[[{"secondary_y": False}]])
+                
+                # Volume Bar (Bottom Axis)
                 fig_p.add_trace(go.Bar(
                     y=profile_data["Price"], x=profile_data["Vol Traded"],
-                    orientation='h', name="Volume", marker_color='rgba(99, 110, 250, 0.8)', xaxis='x'
+                    orientation='h', name="Volume", marker_color='rgba(99, 110, 250, 0.8)'
                 ))
-                # Time Trace
+                
+                # Minutes Bar (Top Axis via a dummy secondary x-axis logic)
                 fig_p.add_trace(go.Bar(
                     y=profile_data["Price"], x=profile_data["Stay (Mins)"],
-                    orientation='h', name="Minutes", marker_color='rgba(239, 85, 59, 0.6)', xaxis='x2'
+                    orientation='h', name="Minutes", marker_color='rgba(239, 85, 59, 0.6)',
+                    xaxis='x2'
                 ))
-                layout_args["barmode"] = 'overlay'
-                layout_args["xaxis"] = {"title": "Volume Traded (Blue)", "titlefont": {"color": "#636EFA"}}
-                layout_args["xaxis2"] = {
-                    "title": "Minutes Stayed (Red)", "titlefont": {"color": "#EF553B"},
-                    "overlaying": 'x', "side": 'top'
-                }
-                layout_args["margin"]["t"] = 100 # Adjust for top axis labels
+
+                fig_p.update_layout(
+                    template="plotly_dark", height=chart_height,
+                    barmode='overlay',
+                    yaxis=dict(title="Price Level (BDT)", type='category'),
+                    xaxis=dict(title="Volume Traded (Blue)", titlefont=dict(color="#636EFA")),
+                    xaxis2=dict(
+                        title="Minutes Stayed (Red)", titlefont=dict(color="#EF553B"),
+                        overlaying='x', side='top', showgrid=False
+                    ),
+                    margin=dict(l=10, r=10, t=100, b=20),
+                    legend=dict(orientation="h", yanchor="bottom", y=1.1, xanchor="right", x=1)
+                )
             else:
                 target_col = "Vol Traded" if view_mode == "Volume" else "Stay (Mins)"
                 unit = "Shares" if view_mode == "Volume" else "Mins"
                 color = "#636EFA" if view_mode == "Volume" else "#EF553B"
                 
-                fig_p.add_trace(go.Bar(
-                    y=profile_data["Price"], x=profile_data[target_col],
-                    orientation='h', marker_color=color, name=view_mode,
-                    hovertemplate="<b>Price: %{y}</b><br>" + f"{view_mode}: " + "%{x}<extra></extra>"
-                ))
-                layout_args["xaxis"] = {"title": f"Total {view_mode} ({unit})"}
+                fig_p = px.bar(
+                    profile_data, y="Price", x=target_col,
+                    orientation='h', template="plotly_dark",
+                    color_discrete_sequence=[color]
+                )
+                fig_p.update_layout(
+                    height=chart_height,
+                    xaxis_title=f"Total {view_mode} ({unit})",
+                    yaxis_title="Price Level (BDT)",
+                    yaxis=dict(type='category'),
+                    margin=dict(l=10, r=10, t=30, b=20)
+                )
 
-            fig_p.update_layout(**layout_args)
             st.plotly_chart(fig_p, use_container_width=True)
 
             st.divider()
 
-            # 2. HISTORY CHART (BELOW)
+            # --- 2. HISTORY CHART (BELOW) ---
             st.subheader(f"⏱️ Price/Volume History: {selected_stock}")
             df_sub = raw_df[raw_df['TRADING CODE'] == selected_stock]
             fig_h = go.Figure()
@@ -184,8 +189,7 @@ if not raw_df.empty:
             fig_h.add_trace(go.Bar(x=df_sub['captured_at'], y=df_sub['VOLUME'], name="Volume", yaxis="y2", opacity=0.2, marker_color='#636EFA'))
             
             fig_h.update_layout(
-                template="plotly_dark", 
-                height=450,
+                template="plotly_dark", height=450,
                 yaxis=dict(title="LTP* (Price)"),
                 yaxis2=dict(title="Total Volume", overlaying="y", side="right"),
                 margin=dict(l=10, r=10, t=20, b=20),
