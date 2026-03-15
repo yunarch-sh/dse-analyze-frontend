@@ -60,7 +60,6 @@ if st.sidebar.button("Log Out"):
 
 # --- 4. DATA ENGINE ---
 @st.cache_data(ttl=60)
-@st.cache_data(ttl=60)
 def get_filtered_data(start, end):
     # Query Mongo between timestamps
     query = {"captured_at": {"$gte": start, "$lte": end}}
