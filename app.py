@@ -106,76 +106,72 @@ if not raw_df.empty:
     if summary:
         analysis_df = pd.DataFrame(summary).sort_values("Stay (Mins)", ascending=False)
         
-        # --- 🏆 TOP SUMMARY ---
-        top_stay = analysis_df.iloc[0]
-        st.success(f"🏆 **Top Consolidation:** **{top_stay['Stock']}** at **{top_stay['Price']} BDT**")
-
-        # --- 📋 RANKED TABLE ---
         st.subheader("📋 Ranked Price Stays")
         st.dataframe(analysis_df, use_container_width=True, hide_index=True)
         
         st.divider()
 
-        # --- 📈 STOCK SELECTION ---
-        selected_stock = st.selectbox("🔍 Select Stock for Detailed Analysis:", analysis_df['Stock'].unique())
+        # --- 📈 STOCK SELECTION & TOGGLE ---
+        c1, c2 = st.columns([2, 1])
+        with c1:
+            selected_stock = st.selectbox("🔍 Select Stock:", analysis_df['Stock'].unique())
+        with c2:
+            view_mode = st.radio("📊 Profile Mode:", ["Volume", "Time Stayed"], horizontal=True)
 
         if selected_stock:
-            col1, col2 = st.columns([1, 1])
+            # Aggregate data
+            stock_summary = analysis_df[analysis_df['Stock'] == selected_stock].copy()
+            profile_data = stock_summary.groupby("Price").agg({
+                "Vol Traded": "sum",
+                "Stay (Mins)": "sum"
+            }).reset_index().sort_values("Price", ascending=True)
 
-            with col1:
-                # --- 6. HORIZONTAL VOLUME PROFILE (EXCEL STYLE) ---
-                st.subheader(f"📊 Volume Profile: {selected_stock}")
-                
-                stock_summary = analysis_df[analysis_df['Stock'] == selected_stock].copy()
-                # Aggregate Volume and Minutes by Price Node
-                profile_data = stock_summary.groupby("Price").agg({
-                    "Vol Traded": "sum",
-                    "Stay (Mins)": "sum"
-                }).reset_index().sort_values("Price", ascending=True)
+            # Determine column to display based on radio button
+            target_col = "Vol Traded" if view_mode == "Volume" else "Stay (Mins)"
+            unit = "Shares" if view_mode == "Volume" else "Mins"
+            bar_color = "#636EFA" if view_mode == "Volume" else "#EF553B"
 
-                fig_profile = go.Figure()
-                fig_profile.add_trace(go.Bar(
+            # Dynamic height calculation to prevent excessive white space
+            chart_height = 150 + (len(profile_data) * 35)
+
+            col_p, col_h = st.columns([1, 1])
+
+            with col_p:
+                st.subheader(f"📊 {view_mode} Profile")
+                fig_p = go.Figure()
+                fig_p.add_trace(go.Bar(
                     y=profile_data["Price"],
-                    x=profile_data["Vol Traded"],
+                    x=profile_data[target_col],
                     orientation='h',
-                    name="Volume Activity",
-                    marker=dict(color='#636EFA', line=dict(color='white', width=0.5)),
-                    customdata=profile_data["Stay (Mins)"],
-                    hovertemplate="<b>Price: %{y} BDT</b><br>Volume: %{x:,.0f}<br>Time: %{customdata}m<extra></extra>"
+                    marker_color=bar_color,
+                    hovertemplate="<b>Price: %{y}</b><br>" + f"{view_mode}: " + "%{x}<extra></extra>"
                 ))
-
-                fig_profile.update_layout(
+                fig_p.update_layout(
                     template="plotly_dark",
-                    height=500,
-                    xaxis=dict(title="Total Volume at Price"),
-                    yaxis=dict(title="Price Level (BDT)", type='category', tickmode='linear'),
+                    height=chart_height,
+                    xaxis=dict(title=f"Total {view_mode} ({unit})"),
+                    yaxis=dict(title="Price Level", type='category'),
                     margin=dict(l=10, r=10, t=20, b=20)
                 )
-                st.plotly_chart(fig_profile, use_container_width=True)
+                st.plotly_chart(fig_p, use_container_width=True)
 
-            with col2:
-                # --- 7. TIME-SERIES CHART ---
-                st.subheader(f"⏱️ Price/Volume History: {selected_stock}")
+            with col_h:
+                st.subheader("⏱️ Price History")
                 df_sub = raw_df[raw_df['TRADING CODE'] == selected_stock]
-                
-                fig_ts = go.Figure()
-                fig_ts.add_trace(go.Scatter(x=df_sub['captured_at'], y=df_sub['LTP*'], name="Price", line=dict(color='#00CC96', width=2)))
-                fig_ts.add_trace(go.Bar(x=df_sub['captured_at'], y=df_sub['VOLUME'], name="Volume", yaxis="y2", opacity=0.3, marker_color='#636EFA'))
-                
-                fig_ts.update_layout(
-                    template="plotly_dark",
-                    height=500,
-                    yaxis=dict(title="Price (BDT)"),
-                    yaxis2=dict(title="Volume", overlaying="y", side="right"),
-                    legend=dict(orientation="h", y=1.1),
-                    margin=dict(l=10, r=10, t=20, b=20)
+                fig_h = go.Figure()
+                fig_h.add_trace(go.Scatter(x=df_sub['captured_at'], y=df_sub['LTP*'], name="Price", line=dict(color='#00CC96')))
+                fig_h.add_trace(go.Bar(x=df_sub['captured_at'], y=df_sub['VOLUME'], name="Volume", yaxis="y2", opacity=0.2))
+                fig_h.update_layout(
+                    template="plotly_dark", height=400,
+                    yaxis2=dict(overlaying="y", side="right"),
+                    margin=dict(l=10, r=10, t=20, b=20),
+                    legend=dict(orientation="h", y=1.1)
                 )
-                st.plotly_chart(fig_ts, use_container_width=True)
+                st.plotly_chart(fig_h, use_container_width=True)
     else:
-        st.info("No volume-increasing stays detected in this range.")
+        st.info("No stays detected.")
 else:
-    st.warning("Waiting for market data... Ensure your collector is running.")
+    st.warning("Waiting for market data...")
 
-# --- 8. FOOTER ---
 st.divider()
-st.caption(f"Showing data from {display_start} to {display_end} (Dhaka Time) | Database: UTC")
+st.caption(f"Dhaka Time: {display_start} to {display_end}")
