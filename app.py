@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 from pymongo import MongoClient
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 from datetime import datetime, time
 import pytz
 from streamlit_autorefresh import st_autorefresh
@@ -128,11 +127,9 @@ if not raw_df.empty:
                     "End": end_t.strftime("%H:%M"),
                 })
 
-# Safety: Create empty DataFrame if no summary exists
-if summary:
-    analysis_df = pd.DataFrame(summary).sort_values("Stay (Mins)", ascending=False)
-else:
-    analysis_df = pd.DataFrame(columns=["Stock", "Price", "Stay (Mins)", "Vol Traded", "Start", "End"])
+analysis_df = pd.DataFrame(summary).sort_values("Stay (Mins)", ascending=False) if summary else pd.DataFrame(
+    columns=["Stock", "Price", "Stay (Mins)", "Vol Traded", "Start", "End"]
+)
 
 # ---------------- RANKED TABLE ----------------
 st.subheader("📋 Ranked Price Stays")
@@ -150,7 +147,6 @@ stock_list = (
 selected_stock = st.selectbox("🔍 Select Stock for Detailed View", stock_list)
 
 if selected_stock != "No Data":
-    # Market Profile: Stacked Vertical Bars
     stock_summary = analysis_df[analysis_df["Stock"] == selected_stock]
     if not stock_summary.empty:
         profile_data = (
@@ -163,45 +159,34 @@ if selected_stock != "No Data":
         profile_data = pd.DataFrame(columns=["Price", "Vol Traded", "Stay (Mins)"])
 
     st.subheader(f"📊 Market Profile — {selected_stock}")
-    
-    # Stacked vertical bars using 2 rows, shared y-axis
-    fig_p = make_subplots(
-        rows=2, cols=1,
-        shared_yaxes=True,
-        vertical_spacing=0.05,
-        subplot_titles=("Time Stay (Minutes)", "Volume Traded")
-    )
 
-    # Top row: Time Stay
+    # ---- SINGLE STACKED HORIZONTAL BARS ----
+    fig_p = go.Figure()
     fig_p.add_trace(go.Bar(
         y=profile_data["Price"],
         x=profile_data["Stay (Mins)"],
         orientation="h",
         name="Time Stay",
         marker_color="#EF553B"
-    ), row=1, col=1)
-
-    # Bottom row: Volume
+    ))
     fig_p.add_trace(go.Bar(
         y=profile_data["Price"],
         x=profile_data["Vol Traded"],
         orientation="h",
         name="Volume",
-        marker_color="#636EFA"
-    ), row=2, col=1)
+        marker_color="#636EFA",
+        base=profile_data["Stay (Mins)"]  # stack on top of Time Stay
+    ))
 
-    # Layout
     fig_p.update_layout(
+        barmode="stack",
         template="plotly_dark",
+        xaxis_title="Minutes / Volume",
+        yaxis_title="Price (BDT)",
         height=400 + len(profile_data) * 10,
-        showlegend=True,
+        legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center"),
         margin=dict(l=10, r=10, t=80, b=20)
     )
-
-    fig_p.update_yaxes(title="Price (BDT)", row=1, col=1)
-    fig_p.update_yaxes(title="Price (BDT)", row=2, col=1)
-    fig_p.update_xaxes(title="Minutes", row=1, col=1)
-    fig_p.update_xaxes(title="Volume", row=2, col=1)
 
     st.plotly_chart(fig_p, use_container_width=True)
 
