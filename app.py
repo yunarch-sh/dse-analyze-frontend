@@ -83,7 +83,6 @@ st.title("⏳ DSE Alpha Tracker")
 if not raw_df.empty:
     summary = []
     
-    # Process stays
     for stock, group in raw_df.groupby("TRADING CODE"):
         if len(group) < 2: continue
         group = group.copy()
@@ -107,20 +106,16 @@ if not raw_df.empty:
     if summary:
         analysis_df = pd.DataFrame(summary).sort_values("Stay (Mins)", ascending=False)
         
-        # 🏆 TOP METRIC
-        top_stay = analysis_df.iloc[0]
-        st.success(f"🏆 **Top Consolidation:** **{top_stay['Stock']}** at **{top_stay['Price']} BDT** for **{top_stay['Stay (Mins)']} mins**")
-
-        # 📋 TABLE
+        # 📋 RANKED TABLE
         st.subheader("📋 Ranked Price Stays")
         st.dataframe(analysis_df, use_container_width=True, hide_index=True)
         
-        # --- 6. NEW RELATIONSHIP CHART (The Fix) ---
+        # --- 6. INTENSITY CHART (Fixed Syntax & Placement) ---
         st.subheader("🎯 Market Intensity: Price vs Volume & Stay")
         
         fig_rel = go.Figure()
 
-        # Trace 1: LTP vs Volume Traded (Bottom X)
+        # Volume Points (Bottom X)
         fig_rel.add_trace(go.Scatter(
             x=analysis_df["Vol Traded"], y=analysis_df["Price"],
             mode='markers+text', name='Volume Traded',
@@ -129,7 +124,7 @@ if not raw_df.empty:
             xaxis='x1'
         ))
 
-        # Trace 2: LTP vs Stay Duration (Top X)
+        # Stay Duration Points (Top X)
         fig_rel.add_trace(go.Scatter(
             x=analysis_df["Stay (Mins)"], y=analysis_df["Price"],
             mode='markers', name='Minutes Stayed',
@@ -147,10 +142,21 @@ if not raw_df.empty:
         )
         st.plotly_chart(fig_rel, use_container_width=True)
 
-        # 📈 INDIVIDUAL DETAIL
-        selected_stock = st.selectbox("Select stock for time-series detail:", analysis_df['Stock'].unique())
+        # 📈 DEEP DIVE (Time-Series)
+        st.divider()
+        selected_stock = st.selectbox("Select stock for detailed History:", analysis_df['Stock'].unique())
         if selected_stock:
             df_sub = raw_df[raw_df['TRADING CODE'] == selected_stock]
             fig = go.Figure()
             fig.add_trace(go.Scatter(x=df_sub['captured_at'], y=df_sub['LTP*'], name="Price", line=dict(color='#00CC96', width=3)))
-            fig.add_trace(go.
+            fig.add_trace(go.Bar(x=df_sub['captured_at'], y=df_sub['VOLUME'], name="Volume", yaxis="y2", opacity=0.3, marker_color='#636EFA'))
+            fig.update_layout(title=f"Time-Series: {selected_stock}", yaxis=dict(title="Price"), yaxis2=dict(title="Volume", overlaying="y", side="right"), template="plotly_dark")
+            st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("No volume-increasing stays detected yet.")
+else:
+    st.warning("Waiting for market data...")
+
+# --- 7. FOOTER ---
+st.divider()
+st.caption(f"Range: {display_start} to {display_end} (Dhaka Time) | Database: UTC")
