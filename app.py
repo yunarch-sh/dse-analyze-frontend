@@ -56,18 +56,17 @@ except Exception as e:
     st.stop()
 
 
-# ---------------- TOP HEADER (LIVE STATUS) ----------------
+# ---------------- TOP HEADER ----------------
 now_dhaka = datetime.now(dhaka_tz)
 col_h1, col_h2 = st.columns([2, 1])
 
 with col_h1:
     st.title("📊 DSE Alpha Tracker")
-    st.markdown(f"**Market Time:** `{now_dhaka.strftime('%A, %b %d | %H:%M:%S')}`")
+    st.markdown(f"**Market Time:** `{now_dhaka.strftime('%H:%M:%S')}`")
 
 with col_h2:
-    # Heartbeat indicator
     st.write("")
-    st.success(f"🟢 **System Live** | Auto-refreshing every 60s")
+    st.success(f"🟢 **Live** | Tracking {now_dhaka.strftime('%d %b %Y')}")
 
 
 # ---------------- SIDEBAR FILTERS ----------------
@@ -108,89 +107,86 @@ def get_filtered_data(start, end):
 raw_df = get_filtered_data(dt_start, dt_end)
 
 
-# ---------------- LOGIC & UI ----------------
-if raw_df.empty:
-    st.info("🔎 **Scanning Database...** No records found for the selected time range.")
-    st.stop()
-
+# ---------------- PRICE STAY ANALYSIS ----------------
 summary = []
-for stock, group in raw_df.groupby("TRADING CODE"):
-    if len(group) < 2: continue
-    group = group.copy()
-    group["price_changed"] = group["LTP*"] != group["LTP*"].shift()
-    group["stay_id"] = group["price_changed"].cumsum()
+if not raw_df.empty:
+    for stock, group in raw_df.groupby("TRADING CODE"):
+        if len(group) < 2: continue
+        group = group.copy()
+        group["price_changed"] = group["LTP*"] != group["LTP*"].shift()
+        group["stay_id"] = group["price_changed"].cumsum()
 
-    for stay_id, stay_group in group.groupby("stay_id"):
-        if len(stay_group) < 2: continue
-        price = float(stay_group["LTP*"].iloc[0])
-        start_time = stay_group["captured_at"].iloc[0]
-        end_time = stay_group["captured_at"].iloc[-1]
-        duration = (end_time - start_time).total_seconds() / 60
-        vol_diff = int(stay_group["VOLUME"].iloc[-1] - stay_group["VOLUME"].iloc[0])
+        for stay_id, stay_group in group.groupby("stay_id"):
+            if len(stay_group) < 2: continue
+            price = float(stay_group["LTP*"].iloc[0])
+            start_t = stay_group["captured_at"].iloc[0]
+            end_t = stay_group["captured_at"].iloc[-1]
+            duration = (end_t - start_t).total_seconds() / 60
+            vol_diff = int(stay_group["VOLUME"].iloc[-1] - stay_group["VOLUME"].iloc[0])
 
-        if vol_diff > 0:
-            summary.append({
-                "Stock": stock, "Price": price, "Stay (Mins)": round(duration, 1),
-                "Vol Traded": vol_diff, "Start": start_time.strftime("%H:%M"), "End": end_time.strftime("%H:%M"),
-            })
+            if vol_diff > 0:
+                summary.append({
+                    "Stock": stock, "Price": price, "Stay (Mins)": round(duration, 1),
+                    "Vol Traded": vol_diff, "Start": start_t.strftime("%H:%M"), "End": end_t.strftime("%H:%M"),
+                })
 
-# --- EMPTY STATE MESSAGE ---
-if not summary:
-    st.divider()
-    st.warning("### ⏳ Awaiting Market Activity")
-    st.write(f"Currently monitoring **{len(raw_df['TRADING CODE'].unique())}** stocks between **{display_start}** and **{display_end}**.")
-    st.info("""
-        **Criteria for Analysis:** To filter out noise, the tracker only shows stocks where the **Price has remained flat** while **Volume has increased** over at least two data points.
-        
-        *Once the market starts moving and orders are filled, your Alpha charts will appear here automatically.*
-    """)
-    st.stop()
+# Safety: Create empty DataFrame if no summary exists
+if summary:
+    analysis_df = pd.DataFrame(summary).sort_values("Stay (Mins)", ascending=False)
+else:
+    analysis_df = pd.DataFrame(columns=["Stock", "Price", "Stay (Mins)", "Vol Traded", "Start", "End"])
 
 
-# ---------------- DATA READY: SHOW CHARTS ----------------
-analysis_df = pd.DataFrame(summary).sort_values("Stay (Mins)", ascending=False)
+# ---------------- TOP INTENSITY MAP ----------------
+st.subheader("🎯 Market-Wide Absorption Intensity")
+fig_intensity = go.Figure()
+if not analysis_df.empty:
+    fig_intensity.add_trace(go.Scatter(
+        x=analysis_df["Stay (Mins)"], y=analysis_df["Vol Traded"], mode='markers+text',
+        text=analysis_df["Stock"], textposition="top center",
+        marker=dict(size=15, color=analysis_df["Stay (Mins)"], colorscale='Viridis', showscale=True)
+    ))
+fig_intensity.update_layout(template="plotly_dark", height=400, xaxis_title="Stay Duration (Mins)", yaxis_title="Volume Absorbed")
+st.plotly_chart(fig_intensity, use_container_width=True)
 
+st.divider()
+
+# ---------------- RANKED TABLE ----------------
 st.subheader("📋 Ranked Price Stays")
 st.dataframe(analysis_df, use_container_width=True, hide_index=True)
 
 st.divider()
 
-selected_stock = st.selectbox("🔍 Select Stock for Detailed View", sorted(analysis_df["Stock"].unique()))
+# ---------------- DETAILED VIEW ----------------
+stock_list = sorted(analysis_df["Stock"].unique()) if not analysis_df.empty else sorted(raw_df["TRADING CODE"].unique()) if not raw_df.empty else ["No Data"]
+selected_stock = st.selectbox("🔍 Select Stock for Detailed View", stock_list)
 
-# --- MARKET PROFILE ---
-stock_summary = analysis_df[analysis_df["Stock"] == selected_stock].copy()
-profile_data = stock_summary.groupby("Price").agg({"Vol Traded": "sum", "Stay (Mins)": "sum"}).reset_index().sort_values("Price")
+if selected_stock != "No Data":
+    # Market Profile
+    stock_summary = analysis_df[analysis_df["Stock"] == selected_stock]
+    if not stock_summary.empty:
+        profile_data = stock_summary.groupby("Price").agg({"Vol Traded": "sum", "Stay (Mins)": "sum"}).reset_index().sort_values("Price")
+    else:
+        profile_data = pd.DataFrame(columns=["Price", "Vol Traded", "Stay (Mins)"])
 
-st.subheader(f"📊 Market Profile — {selected_stock}")
-fig = make_subplots(specs=[[{"secondary_y": False}]])
-fig.add_trace(go.Bar(y=profile_data["Price"], x=profile_data["Vol Traded"], orientation="h", name="Volume", marker_color="#636EFA"))
-fig.add_trace(go.Bar(y=profile_data["Price"], x=profile_data["Stay (Mins)"], orientation="h", name="Time (Mins)", marker_color="#EF553B", xaxis="x2"))
+    st.subheader(f"📊 Market Profile — {selected_stock}")
+    fig_p = make_subplots(specs=[[{"secondary_y": False}]])
+    fig_p.add_trace(go.Bar(y=profile_data["Price"], x=profile_data["Vol Traded"], orientation="h", name="Volume", marker_color="#636EFA"))
+    fig_p.add_trace(go.Bar(y=profile_data["Price"], x=profile_data["Stay (Mins)"], orientation="h", name="Time", marker_color="#EF553B", xaxis="x2"))
+    fig_p.update_layout(template="plotly_dark", barmode="group", height=400,
+                        xaxis2=dict(overlaying="x", side="top", showgrid=False),
+                        legend=dict(orientation="h", y=1.2, x=0.5, xanchor="center"))
+    st.plotly_chart(fig_p, use_container_width=True)
 
-fig.update_layout(
-    template="plotly_dark", barmode="group", height=300 + len(profile_data) * 40,
-    yaxis=dict(title=dict(text="Price Level (BDT)")),
-    xaxis=dict(title=dict(text="Total Volume", font=dict(color="#636EFA")), tickfont=dict(color="#636EFA")),
-    xaxis2=dict(title=dict(text="Total Stay (Mins)", font=dict(color="#EF553B")), tickfont=dict(color="#EF553B"), overlaying="x", side="top", showgrid=False),
-    legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center"),
-    margin=dict(l=10, r=10, t=80, b=20),
-)
-st.plotly_chart(fig, use_container_width=True)
-
-# --- PRICE HISTORY ---
-st.subheader(f"⏱️ Price / Volume History — {selected_stock}")
-df_sub = raw_df[raw_df["TRADING CODE"] == selected_stock]
-fig_hist = go.Figure()
-fig_hist.add_trace(go.Scatter(x=df_sub["captured_at"], y=df_sub["LTP*"], name="Price", line=dict(width=2, color="#00CC96")))
-fig_hist.add_trace(go.Bar(x=df_sub["captured_at"], y=df_sub["VOLUME"], name="Volume", yaxis="y2", opacity=0.3))
-
-fig_hist.update_layout(
-    template="plotly_dark", height=400,
-    yaxis=dict(title="Price"),
-    yaxis2=dict(title="Cumulative Volume", overlaying="y", side="right"),
-    legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center"),
-    margin=dict(l=10, r=10, t=20, b=20),
-)
-st.plotly_chart(fig_hist, use_container_width=True)
+    # Price History
+    df_sub = raw_df[raw_df["TRADING CODE"] == selected_stock] if not raw_df.empty else pd.DataFrame()
+    st.subheader(f"⏱️ Price / Volume History — {selected_stock}")
+    fig_hist = go.Figure()
+    if not df_sub.empty:
+        fig_hist.add_trace(go.Scatter(x=df_sub["captured_at"], y=df_sub["LTP*"], name="Price", line=dict(color="#00CC96")))
+        fig_hist.add_trace(go.Bar(x=df_sub['captured_at'], y=df_sub['VOLUME'], name="Volume", yaxis="y2", opacity=0.3))
+    fig_hist.update_layout(template="plotly_dark", height=400, yaxis2=dict(overlaying="y", side="right"))
+    st.plotly_chart(fig_hist, use_container_width=True)
 
 st.divider()
 st.caption(f"Range: {display_start} to {display_end} | Dhaka Local Time")
