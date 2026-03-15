@@ -138,18 +138,7 @@ else:
 
 
 # ---------------- TOP INTENSITY MAP ----------------
-st.subheader("🎯 Market-Wide Absorption Intensity")
-fig_intensity = go.Figure()
-if not analysis_df.empty:
-    fig_intensity.add_trace(go.Scatter(
-        x=analysis_df["Stay (Mins)"], y=analysis_df["Vol Traded"], mode='markers+text',
-        text=analysis_df["Stock"], textposition="top center",
-        marker=dict(size=15, color=analysis_df["Stay (Mins)"], colorscale='Viridis', showscale=True)
-    ))
-fig_intensity.update_layout(template="plotly_dark", height=400, xaxis_title="Stay Duration (Mins)", yaxis_title="Volume Absorbed")
-st.plotly_chart(fig_intensity, use_container_width=True)
 
-st.divider()
 
 # ---------------- RANKED TABLE ----------------
 st.subheader("📋 Ranked Price Stays")
