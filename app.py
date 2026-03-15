@@ -34,8 +34,8 @@ try:
     client = MongoClient(st.secrets["MONGO_URI"])
     db = client['DSE_Market_Data']
     collection = db['price_logs']
-except:
-    st.error("DB Connection Failed")
+except Exception as e:
+    st.error(f"DB Connection Failed: {e}")
     st.stop()
 
 st.set_page_config(page_title="DSE Alpha Tracker", layout="wide")
@@ -106,43 +106,53 @@ if not raw_df.empty:
     if summary:
         analysis_df = pd.DataFrame(summary).sort_values("Stay (Mins)", ascending=False)
         
-        # 📋 RANKED TABLE
+        # --- TOP SUCCESS BOX ---
+        top_stay = analysis_df.iloc[0]
+        st.success(f"🏆 **Top Consolidation:** **{top_stay['Stock']}** at **{top_stay['Price']} BDT** for **{top_stay['Stay (Mins)']} mins**")
+
+        # --- RANKED TABLE ---
         st.subheader("📋 Ranked Price Stays")
         st.dataframe(analysis_df, use_container_width=True, hide_index=True)
         
-        # --- 6. INTENSITY CHART (Fixed Syntax & Placement) ---
+        # --- 6. INTENSITY CHART (Fixed Block) ---
         st.subheader("🎯 Market Intensity: Price vs Volume & Stay")
         
         fig_rel = go.Figure()
 
-        # Volume Points (Bottom X)
+        # Blue Dots: Volume
         fig_rel.add_trace(go.Scatter(
             x=analysis_df["Vol Traded"], y=analysis_df["Price"],
             mode='markers+text', name='Volume Traded',
             text=analysis_df["Stock"], textposition="top center",
             marker=dict(color='#636EFA', size=12, opacity=0.7),
-            xaxis='x1'
+            xaxis='x' # Maps to bottom axis
         ))
 
-        # Stay Duration Points (Top X)
+        # Red Diamonds: Stay
         fig_rel.add_trace(go.Scatter(
             x=analysis_df["Stay (Mins)"], y=analysis_df["Price"],
             mode='markers', name='Minutes Stayed',
             marker=dict(color='#EF553B', size=10, symbol='diamond'),
-            xaxis='x2'
+            xaxis='x2' # Maps to top axis
         ))
 
         fig_rel.update_layout(
             template="plotly_dark",
             yaxis=dict(title="Price (LTP*) BDT"),
             xaxis=dict(title="Volume Traded", titlefont=dict(color="#636EFA"), tickfont=dict(color="#636EFA")),
-            xaxis2=dict(title="Stay Duration (Minutes)", titlefont=dict(color="#EF553B"), tickfont=dict(color="#EF553B"), overlaying='x', side='top'),
+            xaxis2=dict(
+                title="Stay Duration (Minutes)", 
+                titlefont=dict(color="#EF553B"), 
+                tickfont=dict(color="#EF553B"), 
+                overlaying='x', 
+                side='top'
+            ),
             legend=dict(orientation="h", yanchor="bottom", y=1.1, xanchor="right", x=1),
-            hovermode="closest", height=500
+            hovermode="closest", height=500, margin=dict(t=100)
         )
         st.plotly_chart(fig_rel, use_container_width=True)
 
-        # 📈 DEEP DIVE (Time-Series)
+        # --- 7. INDIVIDUAL DETAIL ---
         st.divider()
         selected_stock = st.selectbox("Select stock for detailed History:", analysis_df['Stock'].unique())
         if selected_stock:
@@ -150,13 +160,18 @@ if not raw_df.empty:
             fig = go.Figure()
             fig.add_trace(go.Scatter(x=df_sub['captured_at'], y=df_sub['LTP*'], name="Price", line=dict(color='#00CC96', width=3)))
             fig.add_trace(go.Bar(x=df_sub['captured_at'], y=df_sub['VOLUME'], name="Volume", yaxis="y2", opacity=0.3, marker_color='#636EFA'))
-            fig.update_layout(title=f"Time-Series: {selected_stock}", yaxis=dict(title="Price"), yaxis2=dict(title="Volume", overlaying="y", side="right"), template="plotly_dark")
+            fig.update_layout(
+                title=f"Time-Series: {selected_stock}", 
+                yaxis=dict(title="Price"), 
+                yaxis2=dict(title="Volume", overlaying="y", side="right"), 
+                template="plotly_dark"
+            )
             st.plotly_chart(fig, use_container_width=True)
     else:
         st.info("No volume-increasing stays detected yet.")
 else:
-    st.warning("Waiting for market data...")
+    st.warning("Waiting for market data. Ensure your collector is running.")
 
-# --- 7. FOOTER ---
+# --- 8. FOOTER ---
 st.divider()
 st.caption(f"Range: {display_start} to {display_end} (Dhaka Time) | Database: UTC")
