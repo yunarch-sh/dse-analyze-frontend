@@ -60,13 +60,24 @@ if st.sidebar.button("Log Out"):
 
 # --- 4. DATA ENGINE ---
 @st.cache_data(ttl=60)
+@st.cache_data(ttl=60)
 def get_filtered_data(start, end):
     # Query Mongo between timestamps
     query = {"captured_at": {"$gte": start, "$lte": end}}
     cursor = collection.find(query).sort("captured_at", 1)
     df = pd.DataFrame(list(cursor))
+    
     if not df.empty:
-        df['captured_at'] = pd.to_datetime(df['captured_at']).dt.tz_convert('Asia/Dhaka')
+        # 1. Ensure it is datetime
+        df['captured_at'] = pd.to_datetime(df['captured_at'])
+        
+        # 2. FIX: Localize to UTC first, then convert to Dhaka
+        # This handles both naive and aware timestamps safely
+        if df['captured_at'].dt.tz is None:
+            df['captured_at'] = df['captured_at'].dt.tz_localize('UTC')
+            
+        df['captured_at'] = df['captured_at'].dt.tz_convert('Asia/Dhaka')
+        
     return df
 
 raw_df = get_filtered_data(dt_start, dt_end)
