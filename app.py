@@ -14,79 +14,64 @@ st.set_page_config(
     page_title="DSE Alpha Tracker",
     layout="wide",
 )
-# ---------------- CUSTOM CSS FOR HEADER ----------------
 st.markdown("""
 <style>
-/* Main header container */
 .main-header {
-    background: rgba(0,0,0,0);  /* Fully transparent */
+    background: rgba(0,0,0,0);  /* Transparent */
     padding: 20px 30px;
     margin-bottom: 25px;
     display: flex;
     justify-content: space-between;
     align-items: center;
     flex-wrap: wrap;
+    border-bottom: 1px solid #444;  /* subtle line under header */
 }
 
-/* Subtitle / small description */
-.subtitle-text {
+.header-left {
+    display: flex;
+    flex-direction: column;
+}
+
+.project-title {
     font-family: 'Inter', sans-serif;
-    font-size: 14px;
-    color: #AAAAAA;  /* muted gray for professionalism */
-    font-weight: 500;
+    font-size: 32px;
+    font-weight: 700;
+    color: #FFFFFF;  /* white for visibility */
     margin: 0;
 }
 
-/* Main title */
-.title-text {
+.project-subtitle {
     font-family: 'Inter', sans-serif;
-    font-size: 34px;
-    font-weight: 700;
-    color: #FFFFFF;  /* clean white */
-    margin: 2px 0 0 0;
+    font-size: 16px;
+    font-weight: 500;
+    color: #AAAAAA;  /* muted gray */
+    margin: 4px 0 0 0;
 }
 
-/* Highlight part of title */
-.title-text span {
-    color: #636EFA;  /* subtle accent for ALPHA */
-}
-
-/* Live badge */
-.badge {
-    background-color: #00CC96;
-    padding: 5px 16px;
-    border-radius: 20px;
+.header-right {
+    font-family: 'Inter', sans-serif;
     font-size: 12px;
-    color: white;
-    font-weight: 600;
-}
-
-/* Session info under badge */
-.session-info {
     color: #CCCCCC;
-    font-size: 12px;
-    margin-top: 6px;
-    line-height: 1.2;
     text-align: right;
+    line-height: 1.2;
+    border-left: 1px solid #444;
+    padding-left: 15px;
 }
 </style>
 """, unsafe_allow_html=True)
 
 st.markdown(f"""
 <div class="main-header">
-    <div>
-        <p class="subtitle-text">DSE Alpha Tracker</p>
-        <h1 class="title-text">POC • PDB <span>ALPHA</span></h1>
+    <div class="header-left">
+        <h1 class="project-title">DSE ALPHA TRACKER</h1>
+        <p class="project-subtitle">POC • PDB</p>
     </div>
-    <div>
-        <span class="badge">LIVE TRACKER</span>
-        <p class="session-info">
-            Session: {now_dhaka.strftime('%d %b %Y')}<br>
-            Dhaka: {now_dhaka.strftime('%H:%M:%S')}
-        </p>
+    <div class="header-right">
+        {now_dhaka.strftime('%d %b %Y | %H:%M:%S')}
     </div>
 </div>
 """, unsafe_allow_html=True)
+
 
 
 st_autorefresh(interval=60000, key="refresh")
