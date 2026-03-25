@@ -17,7 +17,6 @@ st.set_page_config(
 st.markdown("""
 <style>
 .main-header {
-    background: rgba(0,0,0,0);  /* Transparent */
     padding: 20px 30px;
     margin-bottom: 25px;
     display: flex;
@@ -36,7 +35,7 @@ st.markdown("""
     font-family: 'Inter', sans-serif;
     font-size: 32px;
     font-weight: 700;
-    color: #FFFFFF;  /* white for visibility */
+    color: #4A90E2;
     margin: 0;
 }
 
@@ -44,14 +43,14 @@ st.markdown("""
     font-family: 'Inter', sans-serif;
     font-size: 16px;
     font-weight: 500;
-    color: #AAAAAA;  /* muted gray */
+    color: #2ECC71;
     margin: 4px 0 0 0;
 }
 
 .header-right {
     font-family: 'Inter', sans-serif;
     font-size: 12px;
-    color: #CCCCCC;
+    color: #27AE60;
     text-align: right;
     line-height: 1.2;
     border-left: 1px solid #444;
