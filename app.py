@@ -8,6 +8,7 @@ from streamlit_autorefresh import st_autorefresh
 
 # ---------------- GLOBAL SETTINGS ----------------
 dhaka_tz = pytz.timezone("Asia/Dhaka")
+now_dhaka = datetime.now(dhaka_tz)
 
 st.set_page_config(
     page_title="DSE Alpha Tracker",
