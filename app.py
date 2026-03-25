@@ -107,18 +107,6 @@ except Exception as e:
     st.error(f"MongoDB Connection Failed: {e}")
     st.stop()
 
-# ---------------- TOP HEADER ----------------
-now_dhaka = datetime.now(dhaka_tz)
-col_h1, col_h2 = st.columns([2, 1])
-
-with col_h1:
-    st.title("📊 DSE Alpha Tracker")
-    st.markdown(f"**Market Time:** `{now_dhaka.strftime('%H:%M:%S')}`")
-
-with col_h2:
-    st.write("")
-    st.success(f"🟢 **Live** | Tracking {now_dhaka.strftime('%d %b %Y')}")
-
 # ---------------- SIDEBAR FILTERS ----------------
 st.sidebar.header("⏳ Filter Data")
 sel_date = st.sidebar.date_input("Select Date", now_dhaka)
