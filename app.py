@@ -158,6 +158,14 @@ selected_stock = st.selectbox(
 
 st.session_state["selected_stock"] = selected_stock
 
+# ---------------- Calculate total volume for the selected stock ----------------
+total_volume = 0
+if not raw_df.empty:
+    df_sub = raw_df[raw_df["TRADING CODE"] == selected_stock]
+    if not df_sub.empty:
+        total_volume = int(df_sub["VOLUME"].max() - df_sub["VOLUME"].min())
+
+# ---------------- PRICE / VOLUME PROFILE ----------------
 if selected_stock != "No Data":
     stock_summary = analysis_df[analysis_df["Stock"] == selected_stock]
     if not stock_summary.empty:
@@ -171,6 +179,12 @@ if selected_stock != "No Data":
         profile_data = pd.DataFrame(columns=["Price", "Vol Traded", "Stay (Mins)"])
 
     st.subheader(f"📊 Market Profile — {selected_stock}")
+
+    if total_volume > 0:
+        profile_data["Vol % of Total"] = (profile_data["Vol Traded"] / total_volume) * 100
+    else:
+        profile_data["Vol % of Total"] = 0
+
 
     # ---- SINGLE STACKED HORIZONTAL BARS ----
     fig_p = go.Figure()
@@ -187,7 +201,13 @@ if selected_stock != "No Data":
         orientation="h",
         name="Volume",
         marker_color="#636EFA",
-        base=profile_data["Stay (Mins)"]  # stack on top of Time Stay
+        base=profile_data["Stay (Mins)"],  # stack on top of Time Stay
+        hovertemplate=(
+            "Price: %{y}<br>"
+            "Volume: %{x}<br>"
+            "Percent of total: %{customdata:.2f}%"
+        ),
+        customdata=profile_data["Vol % of Total"]
     ))
 
     fig_p.update_layout(
