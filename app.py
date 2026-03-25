@@ -18,56 +18,56 @@ st.set_page_config(
 st.markdown("""
 <style>
 .main-header {
-    background: linear-gradient(135deg, #1e1e2f 0%, #3b3b58 100%);
-    padding: 25px;
-    border-radius: 12px;
+    background: transparent;  /* Transparent background */
+    padding: 25px 30px;
     border-left: 6px solid #00CC96;
     margin-bottom: 30px;
-    box-shadow: 0 6px 20px rgba(0,0,0,0.35);
+    box-shadow: none;  /* Remove shadow for clean look */
 }
 .title-text {
     font-family: 'Inter', sans-serif;
-    font-weight: 900;
+    font-weight: 800;
     font-size: 36px;
-    color: white;
+    color: #FFFFFF;  /* White text for contrast */
     margin: 0;
-    letter-spacing: -1px;
+    letter-spacing: -0.5px;
 }
 .title-text span {
-    color: #636EFA;
-    background: linear-gradient(90deg, #636EFA 0%, #00CC96 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
+    color: #636EFA;  /* Accent color for ALPHA */
 }
 .subtitle-text {
-    font-size: 14px;
-    color: #00CC96;
-    text-transform: uppercase;
-    letter-spacing: 2px;
+    font-size: 16px;
+    color: #CCCCCC;
     font-weight: 500;
+    margin-bottom: 6px;
 }
 .badge {
-    background-color: #3b3b58;
-    padding: 5px 14px;
+    background-color: #00CC96;
+    padding: 5px 16px;
     border-radius: 20px;
     font-size: 13px;
-    color: #00CC96;
-    border: 1px solid #00CC96;
+    color: white;
     font-weight: 600;
+}
+.session-info {
+    color: #AAAAAA;
+    font-size: 12px;
+    margin-top: 6px;
+    line-height: 1.2;
 }
 </style>
 """, unsafe_allow_html=True)
 
 st.markdown(f"""
 <div class="main-header">
-    <div style="display:flex; justify-content: space-between; align-items:center;">
+    <div style="display:flex; justify-content: space-between; align-items:center; flex-wrap: wrap;">
         <div>
-            <p class="subtitle-text">📈 Smart Market Intelligence</p>
+            <p class="subtitle-text">DSE Alpha Tracker</p>
             <h1 class="title-text">POC • PDB <span>ALPHA</span></h1>
         </div>
         <div style="text-align:right;">
             <span class="badge">LIVE TRACKER</span>
-            <p style="color: #888; font-size: 12px; margin-top: 6px;">
+            <p class="session-info">
                 Session: {now_dhaka.strftime('%d %b %Y')}<br>
                 Dhaka: {now_dhaka.strftime('%H:%M:%S')}
             </p>
