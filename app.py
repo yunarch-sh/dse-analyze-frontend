@@ -16,59 +16,65 @@ st.set_page_config(
 )
 # ---------------- CUSTOM CSS FOR HEADER ----------------
 st.markdown("""
-    <style>
-    .main-header {
-        background: linear-gradient(90deg, #1e1e2f 0%, #2d2d44 100%);
-        padding: 20px;
-        border-radius: 10px;
-        border-left: 5px solid #00CC96;
-        margin-bottom: 25px;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-    }
-    .title-text {
-        color: white;
-        font-family: 'Inter', sans-serif;
-        font-weight: 800;
-        font-size: 32px;
-        margin-bottom: 0px;
-        letter-spacing: -1px;
-    }
-    .subtitle-text {
-        color: #00CC96;
-        font-size: 14px;
-        font-weight: 400;
-        text-transform: uppercase;
-        letter-spacing: 2px;
-    }
-    .badge {
-        background-color: #3b3b58;
-        padding: 4px 12px;
-        border-radius: 15px;
-        font-size: 12px;
-        color: #00CC96;
-        border: 1px solid #00CC96;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+<style>
+.main-header {
+    background: linear-gradient(135deg, #1e1e2f 0%, #3b3b58 100%);
+    padding: 25px;
+    border-radius: 12px;
+    border-left: 6px solid #00CC96;
+    margin-bottom: 30px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.35);
+}
+.title-text {
+    font-family: 'Inter', sans-serif;
+    font-weight: 900;
+    font-size: 36px;
+    color: white;
+    margin: 0;
+    letter-spacing: -1px;
+}
+.title-text span {
+    color: #636EFA;
+    background: linear-gradient(90deg, #636EFA 0%, #00CC96 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+.subtitle-text {
+    font-size: 14px;
+    color: #00CC96;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    font-weight: 500;
+}
+.badge {
+    background-color: #3b3b58;
+    padding: 5px 14px;
+    border-radius: 20px;
+    font-size: 13px;
+    color: #00CC96;
+    border: 1px solid #00CC96;
+    font-weight: 600;
+}
+</style>
+""", unsafe_allow_html=True)
 
-# ---------------- TOP DECORATED HEADER ----------------
 st.markdown(f"""
-    <div class="main-header">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-            <div>
-                <p class="subtitle-text">Smart Market Intelligence</p>
-                <h1 class="title-text">POC • PDB <span style="color:#636EFA">ALPHA</span></h1>
-            </div>
-            <div style="text-align: right;">
-                <span class="badge">LIVE TRACKER</span>
-                <p style="color: #888; font-size: 12px; margin-top: 8px;">
-                    Session: {now_dhaka.strftime('%d %b %Y')}<br>
-                    Dhaka: {now_dhaka.strftime('%H:%M:%S')}
-                </p>
-            </div>
+<div class="main-header">
+    <div style="display:flex; justify-content: space-between; align-items:center;">
+        <div>
+            <p class="subtitle-text">📈 Smart Market Intelligence</p>
+            <h1 class="title-text">POC • PDB <span>ALPHA</span></h1>
+        </div>
+        <div style="text-align:right;">
+            <span class="badge">LIVE TRACKER</span>
+            <p style="color: #888; font-size: 12px; margin-top: 6px;">
+                Session: {now_dhaka.strftime('%d %b %Y')}<br>
+                Dhaka: {now_dhaka.strftime('%H:%M:%S')}
+            </p>
         </div>
     </div>
-    """, unsafe_allow_html=True)
+</div>
+""", unsafe_allow_html=True)
 
 st_autorefresh(interval=60000, key="refresh")
 
