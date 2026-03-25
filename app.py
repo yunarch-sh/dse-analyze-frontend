@@ -43,7 +43,7 @@ st.markdown("""
     font-family: 'Inter', sans-serif;
     font-size: 16px;
     font-weight: 500;
-    color: #2ECC71;
+    color: #E74C3C;
     margin: 4px 0 0 0;
 }
 
