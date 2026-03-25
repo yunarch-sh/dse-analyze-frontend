@@ -35,7 +35,7 @@ st.markdown("""
     font-family: 'Inter', sans-serif;
     font-size: 32px;
     font-weight: 700;
-    color: blue !important;
+    color: #4A90E2 !important;
     margin: 0;
 }
 
