@@ -17,64 +17,77 @@ st.set_page_config(
 # ---------------- CUSTOM CSS FOR HEADER ----------------
 st.markdown("""
 <style>
+/* Main header container */
 .main-header {
-    background: transparent;  /* Transparent background */
-    padding: 25px 30px;
-    border-left: 6px solid #00CC96;
-    margin-bottom: 30px;
-    box-shadow: none;  /* Remove shadow for clean look */
+    background: rgba(0,0,0,0);  /* Fully transparent */
+    padding: 20px 30px;
+    margin-bottom: 25px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
 }
+
+/* Subtitle / small description */
+.subtitle-text {
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    color: #AAAAAA;  /* muted gray for professionalism */
+    font-weight: 500;
+    margin: 0;
+}
+
+/* Main title */
 .title-text {
     font-family: 'Inter', sans-serif;
-    font-weight: 800;
-    font-size: 36px;
-    color: #FFFFFF;  /* White text for contrast */
-    margin: 0;
-    letter-spacing: -0.5px;
+    font-size: 34px;
+    font-weight: 700;
+    color: #FFFFFF;  /* clean white */
+    margin: 2px 0 0 0;
 }
+
+/* Highlight part of title */
 .title-text span {
-    color: #636EFA;  /* Accent color for ALPHA */
+    color: #636EFA;  /* subtle accent for ALPHA */
 }
-.subtitle-text {
-    font-size: 16px;
-    color: #CCCCCC;
-    font-weight: 500;
-    margin-bottom: 6px;
-}
+
+/* Live badge */
 .badge {
     background-color: #00CC96;
     padding: 5px 16px;
     border-radius: 20px;
-    font-size: 13px;
+    font-size: 12px;
     color: white;
     font-weight: 600;
 }
+
+/* Session info under badge */
 .session-info {
-    color: #AAAAAA;
+    color: #CCCCCC;
     font-size: 12px;
     margin-top: 6px;
     line-height: 1.2;
+    text-align: right;
 }
 </style>
 """, unsafe_allow_html=True)
 
 st.markdown(f"""
 <div class="main-header">
-    <div style="display:flex; justify-content: space-between; align-items:center; flex-wrap: wrap;">
-        <div>
-            <p class="subtitle-text">DSE Alpha Tracker</p>
-            <h1 class="title-text">POC • PDB <span>ALPHA</span></h1>
-        </div>
-        <div style="text-align:right;">
-            <span class="badge">LIVE TRACKER</span>
-            <p class="session-info">
-                Session: {now_dhaka.strftime('%d %b %Y')}<br>
-                Dhaka: {now_dhaka.strftime('%H:%M:%S')}
-            </p>
-        </div>
+    <div>
+        <p class="subtitle-text">DSE Alpha Tracker</p>
+        <h1 class="title-text">POC • PDB <span>ALPHA</span></h1>
+    </div>
+    <div>
+        <span class="badge">LIVE TRACKER</span>
+        <p class="session-info">
+            Session: {now_dhaka.strftime('%d %b %Y')}<br>
+            Dhaka: {now_dhaka.strftime('%H:%M:%S')}
+        </p>
     </div>
 </div>
 """, unsafe_allow_html=True)
+
 
 st_autorefresh(interval=60000, key="refresh")
 
