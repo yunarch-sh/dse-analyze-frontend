@@ -144,7 +144,19 @@ stock_list = (
     if not raw_df.empty
     else ["No Data"]
 )
-selected_stock = st.selectbox("🔍 Select Stock for Detailed View", stock_list)
+
+# ---------------- STOCK SELECTION (STATEFUL) ----------------
+if "selected_stock" not in st.session_state:
+    st.session_state["selected_stock"] = stock_list[0]
+
+selected_stock = st.selectbox(
+    "🔍 Select Stock for Detailed View",
+    stock_list,
+    index=stock_list.index(st.session_state["selected_stock"])
+    if st.session_state["selected_stock"] in stock_list else 0
+)
+
+st.session_state["selected_stock"] = selected_stock
 
 if selected_stock != "No Data":
     stock_summary = analysis_df[analysis_df["Stock"] == selected_stock]
