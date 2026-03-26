@@ -134,18 +134,27 @@ if st.sidebar.button("Log Out"):
 # ---------------- DATA FETCH ----------------
 @st.cache_data(ttl=60)
 def get_filtered_data(start, end):
-    query = {"captured_at": {"$gte": start, "$lte": end}}
-    cursor = collection.find(query).sort("captured_at", 1)
-    df = pd.DataFrame(list(cursor))
-    if df.empty:
-        return df
-    df["captured_at"] = pd.to_datetime(df["captured_at"])
-    if df["captured_at"].dt.tz is None:
-        df["captured_at"] = df["captured_at"].dt.tz_localize("UTC")
-    df["captured_at"] = df["captured_at"].dt.tz_convert(dhaka_tz)
-    return df
+    try:
+        query = {"captured_at": {"$gte": start, "$lte": end}}
+        cursor = collection.find(query).sort("captured_at", 1)
+        df = pd.DataFrame(list(cursor))
+        if df.empty:
+            return df
 
-raw_df = get_filtered_data(dt_start, dt_end)
+        # Convert captured_at safely
+        df["captured_at"] = pd.to_datetime(df["captured_at"], errors='coerce')
+
+        # Force all times to UTC first, whether aware or naive
+        df["captured_at"] = df["captured_at"].apply(
+            lambda x: x.tz_convert("UTC") if x.tzinfo else x.tz_localize("UTC")
+        )
+
+        # Convert to Dhaka timezone
+        df["captured_at"] = df["captured_at"].dt.tz_convert(dhaka_tz)
+        return df
+    except Exception as e:
+        st.error(f"Data Fetch Error: {e}")
+        return pd.DataFrame()
 
 # ---------------- PRICE STAY ANALYSIS ----------------
 summary = []
