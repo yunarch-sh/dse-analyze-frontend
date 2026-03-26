@@ -100,7 +100,7 @@ if not check_password():
 @st.cache_resource
 def init_connection():
     try:
-        client = MongoClient(st.secrets["MONGO_URI"])
+        client = MongoClient(st.secrets["MONGO"]["MONGO_URI"])
         db = client["DSE_Market_Data"]
         collection = db["price_logs"]
         return collection
