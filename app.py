@@ -86,7 +86,7 @@ def check_password():
         password = st.text_input("Password", type="password")
         submitted = st.form_submit_button("Login")
         if submitted:
-            if (username == st.secrets["LOGIN_USER"] and password == st.secrets["LOGIN_PASS"]):
+            if (username == st.secrets["LOGIN"]["LOGIN_USER"] and password == st.secrets["LOGIN"]["LOGIN_PASS"]):
                 st.session_state["password_correct"] = True
                 st.rerun()
             else:
