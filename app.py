@@ -10,13 +10,6 @@ from streamlit_autorefresh import st_autorefresh
 dhaka_tz = pytz.timezone("Asia/Dhaka")
 now_dhaka = datetime.now(dhaka_tz)
 
-try:
-    client = MongoClient(st.secrets["MONGO_URI"])
-    db = client["DSE_Market_Data"]
-    st.success("MongoDB Connected ✅")
-except Exception as e:
-    st.error(f"MongoDB Connection Failed: {e}")
-
 st.set_page_config(
     page_title="DSE Alpha Tracker",
     layout="wide",
@@ -107,12 +100,10 @@ if not check_password():
 
 # ---------------- DATABASE CONNECTION ----------------
 @st.cache_resource
-def init_connection():
-    return MongoClient(st.secrets["MONGO_URI"])
-
 try:
-    client = init_connection()
+    client = MongoClient(st.secrets["MONGO_URI"])
     db = client["DSE_Market_Data"]
+    st.success("MongoDB Connected ✅")
     collection = db["price_logs"]
 except Exception as e:
     st.error(f"MongoDB Connection Failed: {e}")
