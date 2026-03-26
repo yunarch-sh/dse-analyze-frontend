@@ -109,7 +109,6 @@ def init_connection():
         st.stop()
 
 collection = init_connection()
-st.success("MongoDB Connected ✅")
 
 # ---------------- SIDEBAR FILTERS ----------------
 st.sidebar.header("⏳ Filter Data")
