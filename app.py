@@ -5,8 +5,6 @@ import plotly.graph_objects as go
 from datetime import datetime, time
 import pytz
 from streamlit_autorefresh import st_autorefresh
-import streamlit as st
-from pymongo import MongoClient
 
 try:
     client = MongoClient(st.secrets["MONGO_URI"])
