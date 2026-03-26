@@ -23,7 +23,7 @@ st.markdown("""
     justify-content: space-between;
     align-items: center;
     flex-wrap: wrap;
-    border-bottom: 1px solid #444;  /* subtle line under header */
+    border-bottom: 1px solid #444;
 }
 
 .header-left {
@@ -71,8 +71,6 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-
-
 st_autorefresh(interval=60000, key="refresh")
 
 # ---------------- AUTH SYSTEM ----------------
@@ -100,14 +98,18 @@ if not check_password():
 
 # ---------------- DATABASE CONNECTION ----------------
 @st.cache_resource
-try:
-    client = MongoClient(st.secrets["MONGO_URI"])
-    db = client["DSE_Market_Data"]
-    st.success("MongoDB Connected ✅")
-    collection = db["price_logs"]
-except Exception as e:
-    st.error(f"MongoDB Connection Failed: {e}")
-    st.stop()
+def init_connection():
+    try:
+        client = MongoClient(st.secrets["MONGO_URI"])
+        db = client["DSE_Market_Data"]
+        collection = db["price_logs"]
+        return collection
+    except Exception as e:
+        st.error(f"MongoDB Connection Failed: {e}")
+        st.stop()
+
+collection = init_connection()
+st.success("MongoDB Connected ✅")
 
 # ---------------- SIDEBAR FILTERS ----------------
 st.sidebar.header("⏳ Filter Data")
@@ -144,7 +146,7 @@ def get_filtered_data(start, end):
 
         # Force all times to UTC first, whether aware or naive
         df["captured_at"] = df["captured_at"].apply(
-            lambda x: x.tz_convert("UTC") if x.tzinfo else x.tz_localize("UTC")
+            lambda x: x.tz_convert("UTC") if pd.notnull(x) and x.tzinfo else (x.tz_localize("UTC") if pd.notnull(x) else x)
         )
 
         # Convert to Dhaka timezone
@@ -154,7 +156,7 @@ def get_filtered_data(start, end):
         st.error(f"Data Fetch Error: {e}")
         return pd.DataFrame()
 
-raw_df = get_filtered_data(dt_start, dt_end) 
+raw_df = get_filtered_data(dt_start, dt_end)
 
 # ---------------- PRICE STAY ANALYSIS ----------------
 summary = []
@@ -240,7 +242,6 @@ if selected_stock != "No Data":
         profile_data["Vol % of Total"] = (profile_data["Vol Traded"] / total_volume) * 100
     else:
         profile_data["Vol % of Total"] = 0
-
 
     # ---- SINGLE STACKED HORIZONTAL BARS ----
     fig_p = go.Figure()
