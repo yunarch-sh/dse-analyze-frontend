@@ -123,6 +123,7 @@ t_start, t_end = st.sidebar.slider(
 
 dt_start = dhaka_tz.localize(datetime.combine(sel_date, t_start)).astimezone(pytz.UTC)
 dt_end = dhaka_tz.localize(datetime.combine(sel_date, t_end)).astimezone(pytz.UTC)
+raw_df = get_filtered_data(dt_start, dt_end) 
 
 display_start = dt_start.astimezone(dhaka_tz).strftime("%H:%M")
 display_end = dt_end.astimezone(dhaka_tz).strftime("%H:%M")
