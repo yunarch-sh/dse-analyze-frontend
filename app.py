@@ -4,34 +4,53 @@ from pymongo import MongoClient
 import plotly.graph_objects as go
 from datetime import datetime, time
 import pytz
+import threading
+import time as pytime
 
 # ---------------- GLOBAL SETTINGS ----------------
 dhaka_tz = pytz.timezone("Asia/Dhaka")
 st.set_page_config(page_title="DSE Alpha Tracker", layout="wide")
 
-# ---------------- HEADER ----------------
+# ---------------- HEADER PLACEHOLDER ----------------
+header_placeholder = st.empty()
+top_info_placeholder = st.empty()  # For current time + delay
+
+# ---------------- HEADER FUNCTION ----------------
 def render_header():
-    now_dhaka = datetime.now(dhaka_tz)
-    st.markdown(f"""
-    <style>
-    .main-header {{ padding: 20px 30px; margin-bottom: 25px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; border-bottom: 1px solid #444; }}
-    .header-left {{ display: flex; flex-direction: column; }}
-    .project-title {{ font-family: 'Inter', sans-serif; font-size: 32px; font-weight: 700; color: #4A90E2 !important; margin: 0; }}
-    .project-subtitle {{ font-family: 'Inter', sans-serif; font-size: 16px; font-weight: 500; color: #E74C3C; margin: 4px 0 0 0; }}
-    .header-right {{ font-family: 'Inter', sans-serif; font-size: 12px; color: #27AE60; text-align: right; line-height: 1.2; border-left: 1px solid #444; padding-left: 15px; }}
-    </style>
-    <div class="main-header">
-        <div class="header-left">
-            <h1 class="project-title">DSE ALPHA TRACKER</h1>
-            <p class="project-subtitle">POC • PDB</p>
+    now = datetime.now(dhaka_tz)
+    header_placeholder.markdown(f"""
+    <div style="padding:20px 30px; margin-bottom:25px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; border-bottom:1px solid #444;">
+        <div>
+            <h1 style="font-family: 'Inter', sans-serif; font-size:32px; font-weight:700; color:#4A90E2; margin:0;">DSE ALPHA TRACKER</h1>
+            <p style="font-family: 'Inter', sans-serif; font-size:16px; font-weight:500; color:#E74C3C; margin:4px 0 0 0;">POC • PDB</p>
         </div>
-        <div class="header-right">
-            {now_dhaka.strftime('%d %b %Y | %H:%M:%S')}
+        <div style="font-family: 'Inter', sans-serif; font-size:12px; color:#27AE60; text-align:right; line-height:1.2; border-left:1px solid #444; padding-left:15px;">
+            {now.strftime('%d %b %Y | %H:%M:%S')}
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-render_header()
+render_header()  # initial render
+
+# ---------------- DELAY THREAD ----------------
+def update_top_info():
+    while True:
+        now = datetime.now(dhaka_tz)
+        last_refresh = st.session_state.get("last_refresh")
+        delay_seconds = (now - last_refresh).total_seconds() if last_refresh else 0
+        delay_str = f"{int(delay_seconds//60)}m {int(delay_seconds%60)}s"
+        top_info_placeholder.markdown(f"""
+        <div style="display:flex;justify-content:space-between;align-items:center;font-family:sans-serif;font-size:14px;color:#00FF00;margin-bottom:10px;">
+            <span>Current Time: {now.strftime('%d %b %Y | %H:%M:%S')}</span>
+            <span>Delay since last refresh: {delay_str}</span>
+        </div>
+        """, unsafe_allow_html=True)
+        pytime.sleep(60)
+
+if "top_info_thread_started" not in st.session_state:
+    thread = threading.Thread(target=update_top_info, daemon=True)
+    thread.start()
+    st.session_state["top_info_thread_started"] = True
 
 # ---------------- AUTH SYSTEM ----------------
 def check_password():
@@ -49,9 +68,10 @@ def check_password():
             if (username == st.secrets["LOGIN"]["LOGIN_USER"] 
                 and password == st.secrets["LOGIN"]["LOGIN_PASS"]):
                 st.session_state["password_correct"] = True
+                st.session_state["refresh_key"] = not st.session_state.get("refresh_key", False)
             else:
                 st.error("Invalid credentials")
-    return st.session_state.get("password_correct", False)
+    return False
 
 if not check_password():
     st.stop()
@@ -85,6 +105,7 @@ display_end = dt_end.astimezone(dhaka_tz).strftime("%H:%M")
 
 if st.sidebar.button("Log Out"):
     st.session_state["password_correct"] = False
+    st.session_state["refresh_key"] = not st.session_state.get("refresh_key", False)
     st.experimental_rerun()
 
 # ---------------- DATA FETCH ----------------
@@ -107,10 +128,13 @@ def get_filtered_data(start, end):
         st.error(f"Data Fetch Error: {e}")
         return pd.DataFrame()
 
+# ---------------- MANUAL REFRESH ----------------
 if st.sidebar.button("🔄 Refresh Data"):
     st.cache_data.clear()
+    st.session_state["refresh_key"] = not st.session_state.get("refresh_key", False)
 
 with st.spinner("Fetching latest market data..."):
+    _ = st.session_state["refresh_key"]
     raw_df = get_filtered_data(dt_start, dt_end)
     st.session_state["last_refresh"] = datetime.now(dhaka_tz)
 
@@ -242,21 +266,24 @@ if selected_stock != "No Data" and not df_sub.empty:
     )
     st.plotly_chart(fig_full, width='stretch')
 
-# ---------------- PRICE / VOLUME HISTORY ----------------
+# ---------------- PER-TICK VOLUME DELTA ----------------
 df_sub = df_sub.copy()
 df_sub["VOL_DIFF"] = df_sub["VOLUME"].diff().fillna(0)
 
 st.subheader(f"⏱️ Price / Volume History — {selected_stock}")
 fig_hist = go.Figure()
+
 fig_hist.add_trace(go.Scatter(
     x=df_sub["captured_at"], y=df_sub["LTP*"],
     name="Price", line=dict(color="#00CC96")
 ))
+
 fig_hist.add_trace(go.Bar(
     x=df_sub["captured_at"], y=df_sub["VOL_DIFF"],
     name="Volume Delta", yaxis="y2",
     opacity=0.6, marker_color="#636EFA"
 ))
+
 fig_hist.update_layout(
     template="plotly_dark", height=400,
     yaxis=dict(title="Price"),
@@ -264,5 +291,6 @@ fig_hist.update_layout(
     legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center"),
     margin=dict(l=10, r=10, t=20, b=20)
 )
+
 st.plotly_chart(fig_hist, width='stretch')
 st.caption(f"Range: {display_start} to {display_end} | Dhaka Local Time")
