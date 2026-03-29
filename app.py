@@ -4,37 +4,13 @@ from pymongo import MongoClient
 import plotly.graph_objects as go
 from datetime import datetime, time
 import pytz
-import time as pytime
 
 # ---------------- GLOBAL SETTINGS ----------------
 dhaka_tz = pytz.timezone("Asia/Dhaka")
 st.set_page_config(page_title="DSE Alpha Tracker", layout="wide")
 
-# ---------------- HEADER (Top Time Updated Live) ----------------
-header_placeholder = st.empty()  # Placeholder for header
-
-def render_header():
-    now_dhaka = datetime.now(dhaka_tz)
-    header_placeholder.markdown(f"""
-    <style>
-    .main-header {{ padding: 20px 30px; margin-bottom: 25px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; border-bottom: 1px solid #444; }}
-    .header-left {{ display: flex; flex-direction: column; }}
-    .project-title {{ font-family: 'Inter', sans-serif; font-size: 32px; font-weight: 700; color: #4A90E2 !important; margin: 0; }}
-    .project-subtitle {{ font-family: 'Inter', sans-serif; font-size: 16px; font-weight: 500; color: #E74C3C; margin: 4px 0 0 0; }}
-    .header-right {{ font-family: 'Inter', sans-serif; font-size: 12px; color: #27AE60; text-align: right; line-height: 1.2; border-left: 1px solid #444; padding-left: 15px; }}
-    </style>
-    <div class="main-header">
-        <div class="header-left">
-            <h1 class="project-title">DSE ALPHA TRACKER</h1>
-            <p class="project-subtitle">POC • PDB</p>
-        </div>
-        <div class="header-right">
-            {now_dhaka.strftime('%d %b %Y | %H:%M:%S')}
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-render_header()  # Initial render
+# ---------------- HEADER PLACEHOLDER ----------------
+header_placeholder = st.empty()
 
 # ---------------- AUTH SYSTEM ----------------
 def check_password():
@@ -93,12 +69,42 @@ if st.sidebar.button("Log Out"):
     st.experimental_rerun()
 
 # ---------------- MANUAL REFRESH ----------------
-if "refresh_key" not in st.session_state:
-    st.session_state["refresh_key"] = False
+if "last_refresh" not in st.session_state:
+    st.session_state["last_refresh"] = None
 
 if st.sidebar.button("🔄 Refresh Data"):
     st.cache_data.clear()
-    st.session_state["refresh_key"] = not st.session_state["refresh_key"]
+    st.session_state["refresh_key"] = not st.session_state.get("refresh_key", False)
+    st.session_state["last_refresh"] = datetime.now(dhaka_tz)
+    st.experimental_rerun()
+
+# ---------------- HEADER ----------------
+now_dhaka = datetime.now(dhaka_tz)
+header_placeholder.markdown(f"""
+<style>
+.main-header {{ padding: 20px 30px; margin-bottom: 25px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; border-bottom: 1px solid #444; }}
+.header-left {{ display: flex; flex-direction: column; }}
+.project-title {{ font-family: 'Inter', sans-serif; font-size: 32px; font-weight: 700; color: #4A90E2 !important; margin: 0; }}
+.project-subtitle {{ font-family: 'Inter', sans-serif; font-size: 16px; font-weight: 500; color: #E74C3C; margin: 4px 0 0 0; }}
+.header-right {{ font-family: 'Inter', sans-serif; font-size: 12px; color: #27AE60; text-align: right; line-height: 1.2; border-left: 1px solid #444; padding-left: 15px; }}
+</style>
+<div class="main-header">
+    <div class="header-left">
+        <h1 class="project-title">DSE ALPHA TRACKER</h1>
+        <p class="project-subtitle">POC • PDB</p>
+    </div>
+    <div class="header-right">
+        {now_dhaka.strftime('%d %b %Y | %H:%M:%S')}
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# ---------------- DELAY DISPLAY ----------------
+if st.session_state["last_refresh"]:
+    delay_sec = round((datetime.now(dhaka_tz) - st.session_state["last_refresh"]).total_seconds())
+    st.sidebar.info(f"Last refreshed: {st.session_state['last_refresh'].strftime('%d %b %Y | %H:%M:%S')} | Delay: {delay_sec} sec")
+else:
+    st.sidebar.info("Last refreshed: N/A | Delay: N/A")
 
 # ---------------- DATA FETCH ----------------
 @st.cache_data(ttl=60)
@@ -121,27 +127,8 @@ def get_filtered_data(start, end):
         return pd.DataFrame()
 
 # ---------------- FETCH DATA ----------------
-with st.spinner("Fetching latest market data..."):
-    _ = st.session_state["refresh_key"]  # force rerun
-    raw_df = get_filtered_data(dt_start, dt_end)
-    st.session_state["last_refresh"] = datetime.now(dhaka_tz)
-
-# ---------------- DELAY COUNTER ----------------
-delay_placeholder = st.sidebar.empty()
-def render_delay():
-    while True:
-        render_header()  # update top header
-        if "last_refresh" in st.session_state and st.session_state["last_refresh"]:
-            now = datetime.now(dhaka_tz)
-            delay_sec = round((now - st.session_state['last_refresh']).total_seconds())
-            delay_placeholder.info(
-                f"Last refreshed: {st.session_state['last_refresh'].strftime('%d %b %Y | %H:%M:%S')} | Delay: {delay_sec} sec"
-            )
-        pytime.sleep(1)
-
-# Run delay counter in the sidebar (non-blocking hack)
-import threading
-threading.Thread(target=render_delay, daemon=True).start()
+_ = st.session_state.get("refresh_key", False)
+raw_df = get_filtered_data(dt_start, dt_end)
 
 # ---------------- PRICE STAY ANALYSIS ----------------
 summary = []
@@ -176,7 +163,7 @@ analysis_df = pd.DataFrame(summary).sort_values("Stay (Mins)", ascending=False) 
 
 # ---------------- RANKED TABLE ----------------
 st.subheader("📋 Ranked Price Stays")
-st.dataframe(analysis_df, width="stretch", hide_index=True)
+st.dataframe(analysis_df, width='stretch', hide_index=True)
 st.divider()
 
 # ---------------- DETAILED VIEW ----------------
@@ -199,6 +186,7 @@ st.session_state["selected_stock"] = selected_stock
 if not raw_df.empty and selected_stock != "No Data":
     df_sub = raw_df[raw_df["TRADING CODE"] == selected_stock].copy()
     total_volume = int(df_sub["VOLUME"].max() - df_sub["VOLUME"].min()) if not df_sub.empty else 0
+    df_sub["VOL_DIFF"] = df_sub["VOLUME"].diff().fillna(0)
 else:
     df_sub = pd.DataFrame()
     total_volume = 0
@@ -235,58 +223,21 @@ if selected_stock != "No Data":
         legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center"),
         margin=dict(l=10, r=10, t=80, b=20)
     )
-    st.plotly_chart(fig_p, use_container_width=True)
-
-# ---------------- FULL MARKET PROFILE (ALL PRICES) ----------------
-if selected_stock != "No Data" and not df_sub.empty:
-    full_df = df_sub.copy()
-    full_profile = full_df.groupby("LTP*").agg(
-        Vol_Traded=("VOLUME", lambda x: x.max() - x.min()),
-        Stay_Count=("captured_at", "count")
-    ).reset_index().sort_values("LTP*")
-    total_volume_full = full_profile["Vol_Traded"].sum()
-    full_profile["Vol % of Total"] = (full_profile["Vol_Traded"] / total_volume_full * 100) if total_volume_full>0 else 0
-
-    fig_full = go.Figure()
-    fig_full.add_trace(go.Bar(
-        y=full_profile["LTP*"], x=full_profile["Stay_Count"], orientation="h",
-        name="Time Stay", marker_color="#EF553B"
-    ))
-    fig_full.add_trace(go.Bar(
-        y=full_profile["LTP*"], x=full_profile["Vol_Traded"], orientation="h",
-        name="Volume", marker_color="#636EFA", base=full_profile["Stay_Count"],
-        hovertemplate="Price: %{y}<br>Volume: %{x}<br>Percent of total: %{customdata:.2f}%",
-        customdata=full_profile["Vol % of Total"]
-    ))
-    fig_full.update_layout(
-        barmode="stack", template="plotly_dark",
-        xaxis_title="Minutes / Volume", yaxis_title="Price (BDT)",
-        height=400 + len(full_profile)*10,
-        legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center"),
-        margin=dict(l=10, r=10, t=80, b=20)
-    )
-    st.plotly_chart(fig_full, use_container_width=True)
+    st.plotly_chart(fig_p, width='stretch')
 
 # ---------------- PRICE / VOLUME HISTORY ----------------
 if not df_sub.empty:
-    df_sub["VOL_DIFF"] = df_sub["VOLUME"].diff().fillna(0)
-
     st.subheader(f"⏱️ Price / Volume History — {selected_stock}")
     fig_hist = go.Figure()
-
-    # Price line
     fig_hist.add_trace(go.Scatter(
         x=df_sub["captured_at"], y=df_sub["LTP*"],
         name="Price", line=dict(color="#00CC96")
     ))
-
-    # Per-tick volume bars
     fig_hist.add_trace(go.Bar(
         x=df_sub["captured_at"], y=df_sub["VOL_DIFF"],
         name="Volume Delta", yaxis="y2",
         opacity=0.6, marker_color="#636EFA"
     ))
-
     fig_hist.update_layout(
         template="plotly_dark", height=400,
         yaxis=dict(title="Price"),
@@ -294,6 +245,5 @@ if not df_sub.empty:
         legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center"),
         margin=dict(l=10, r=10, t=20, b=20)
     )
-    st.plotly_chart(fig_hist, use_container_width=True)
-
-st.caption(f"Range: {display_start} to {display_end} | Dhaka Local Time")
+    st.plotly_chart(fig_hist, width='stretch')
+    st.caption(f"Range: {display_start} to {display_end} | Dhaka Local Time")
