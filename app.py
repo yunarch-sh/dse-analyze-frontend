@@ -84,18 +84,19 @@ dt_end = dhaka_tz.localize(datetime.combine(sel_date, t_end)).astimezone(pytz.UT
 display_start = dt_start.astimezone(dhaka_tz).strftime("%H:%M")
 display_end = dt_end.astimezone(dhaka_tz).strftime("%H:%M")
 
+# ---------------- LOGOUT ----------------
 if st.sidebar.button("Log Out"):
     st.session_state["password_correct"] = False
     st.session_state["refresh_key"] = not st.session_state.get("refresh_key", False)
     st.experimental_rerun()
 
-# ---------------- AUTO REFRESH SETTINGS ----------------
-st.sidebar.subheader("🔄 Auto Refresh Settings")
-auto_refresh = st.sidebar.checkbox("Enable Auto Refresh", value=False)
-refresh_interval = st.sidebar.number_input("Refresh interval (seconds)", min_value=10, max_value=3600, value=60, step=10)
-
+# ---------------- MANUAL REFRESH ----------------
 if "refresh_key" not in st.session_state:
     st.session_state["refresh_key"] = False
+
+if st.sidebar.button("🔄 Refresh Data"):
+    st.cache_data.clear()  # Clear cached data
+    st.session_state["refresh_key"] = not st.session_state.get("refresh_key", False)
 
 # ---------------- DATA FETCH ----------------
 @st.cache_data(ttl=60)
@@ -106,34 +107,26 @@ def get_filtered_data(start, end):
         df = pd.DataFrame(list(cursor))
         if df.empty:
             return df
-        df["captured_at"] = pd.to_datetime(df["captured_at"], errors='coerce')
-        df["captured_at"] = df["captured_at"].apply(
-            lambda x: x.tz_convert("UTC") if pd.notnull(x) and x.tzinfo 
-            else (x.tz_localize("UTC") if pd.notnull(x) else x)
-        )
-        df["captured_at"] = df["captured_at"].dt.tz_convert(dhaka_tz)
+        df["captured_at"] = pd.to_datetime(df["captured_at"], utc=True).dt.tz_convert(dhaka_tz)
+        df["VOLUME"] = pd.to_numeric(df["VOLUME"], errors='coerce').fillna(0)
         return df
     except Exception as e:
         st.error(f"Data Fetch Error: {e}")
         return pd.DataFrame()
-
-# ---------------- REFRESH DATA ----------------
-if st.sidebar.button("🔄 Refresh Data"):
-    st.cache_data.clear()
-    st.session_state["refresh_key"] = not st.session_state["refresh_key"]
-
-if auto_refresh:
-    import time as pytime
-    pytime.sleep(refresh_interval)
-    st.session_state["refresh_key"] = not st.session_state.get("refresh_key", False)
 
 with st.spinner("Fetching latest market data..."):
     _ = st.session_state["refresh_key"]  # force rerun
     raw_df = get_filtered_data(dt_start, dt_end)
     st.session_state["last_refresh"] = datetime.now(dhaka_tz)
 
+# ---------------- LAST REFRESH INFO ----------------
 if "last_refresh" in st.session_state and st.session_state["last_refresh"]:
-    st.sidebar.info(f"Last refreshed: {st.session_state['last_refresh'].strftime('%d %b %Y | %H:%M:%S')}")
+    last_refresh = st.session_state["last_refresh"]
+    now = datetime.now(dhaka_tz)
+    delay_minutes = int((now - last_refresh).total_seconds() / 60)
+    st.sidebar.info(
+        f"Last refreshed: {last_refresh.strftime('%d %b %Y | %H:%M:%S')} | Data is ~{delay_minutes} min behind"
+    )
 
 # ---------------- PRICE STAY ANALYSIS ----------------
 summary = []
@@ -168,7 +161,7 @@ analysis_df = pd.DataFrame(summary).sort_values("Stay (Mins)", ascending=False) 
 
 # ---------------- RANKED TABLE ----------------
 st.subheader("📋 Ranked Price Stays")
-st.dataframe(analysis_df, width='stretch', hide_index=True)
+st.dataframe(analysis_df, width=None, hide_index=True)
 st.divider()
 
 # ---------------- DETAILED VIEW ----------------
@@ -189,7 +182,7 @@ selected_stock = st.selectbox(
 st.session_state["selected_stock"] = selected_stock
 
 if not raw_df.empty and selected_stock != "No Data":
-    df_sub = raw_df[raw_df["TRADING CODE"] == selected_stock]
+    df_sub = raw_df[raw_df["TRADING CODE"] == selected_stock].copy()
     total_volume = int(df_sub["VOLUME"].max() - df_sub["VOLUME"].min()) if not df_sub.empty else 0
 else:
     df_sub = pd.DataFrame()
@@ -227,41 +220,10 @@ if selected_stock != "No Data":
         legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center"),
         margin=dict(l=10, r=10, t=80, b=20)
     )
-    st.plotly_chart(fig_p, width='stretch')
+    st.plotly_chart(fig_p, use_container_width=True)
 
-    # ---------------- FULL MARKET PROFILE (ALL PRICES) ----------------
-    st.subheader(f"📊 PDB ALL Price — {selected_stock}")
-    full_df = df_sub.copy()
-    full_profile = full_df.groupby("LTP*").agg(
-        Vol_Traded=("VOLUME", lambda x: x.max() - x.min()),
-        Stay_Count=("captured_at", "count")
-    ).reset_index().sort_values("LTP*")
-    total_volume_full = full_profile["Vol_Traded"].sum()
-    full_profile["Vol % of Total"] = (full_profile["Vol_Traded"] / total_volume_full * 100) if total_volume_full>0 else 0
-
-    fig_full = go.Figure()
-    fig_full.add_trace(go.Bar(
-        y=full_profile["LTP*"], x=full_profile["Stay_Count"], orientation="h",
-        name="Time Stay", marker_color="#EF553B"
-    ))
-    fig_full.add_trace(go.Bar(
-        y=full_profile["LTP*"], x=full_profile["Vol_Traded"], orientation="h",
-        name="Volume", marker_color="#636EFA", base=full_profile["Stay_Count"],
-        hovertemplate="Price: %{y}<br>Volume: %{x}<br>Percent of total: %{customdata:.2f}%",
-        customdata=full_profile["Vol % of Total"]
-    ))
-    fig_full.update_layout(
-        barmode="stack", template="plotly_dark",
-        xaxis_title="Minutes / Volume", yaxis_title="Price (BDT)",
-        height=400 + len(full_profile)*10,
-        legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center"),
-        margin=dict(l=10, r=10, t=80, b=20)
-    )
-    st.plotly_chart(fig_full, width='stretch')
-
-# Compute per-tick volume change
-df_sub = df_sub.copy()
-df_sub["VOL_DIFF"] = df_sub["VOLUME"].diff().fillna(0)  # first entry has no previous, set 0
+# ---------------- PER-TICK VOLUME DELTA ----------------
+df_sub["VOL_DIFF"] = df_sub["VOLUME"].diff().fillna(0)
 
 st.subheader(f"⏱️ Price / Volume History — {selected_stock}")
 fig_hist = go.Figure()
@@ -287,5 +249,5 @@ fig_hist.update_layout(
     margin=dict(l=10, r=10, t=20, b=20)
 )
 
-st.plotly_chart(fig_hist, width='stretch')
+st.plotly_chart(fig_hist, use_container_width=True)
 st.caption(f"Range: {display_start} to {display_end} | Dhaka Local Time")
