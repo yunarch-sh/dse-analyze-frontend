@@ -226,9 +226,13 @@ if selected_stock != "No Data" and not df_sub.empty:
         hovertemplate="Price: %{y}<br>Volume: %{x}<br>Percent of total: %{customdata:.2f}%",
         customdata=full_profile["Vol % of Total"]
     ))
+    y_min = full_profile["LTP*"].min()
+    y_max = full_profile["LTP*"].max()
+
     fig_full.update_layout(
         barmode="stack", template="plotly_dark",
         xaxis_title="Minutes / Volume", yaxis_title="Price (BDT)",
+        yaxis=dict(range=[y_min, y_max]),  # <-- force Y-axis to start from lowest price
         height=400 + len(full_profile)*10,
         legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center"),
         margin=dict(l=10, r=10, t=80, b=20)
