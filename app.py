@@ -13,10 +13,7 @@ st.set_page_config(page_title="DSE Alpha Tracker", layout="wide")
 def render_header():
     now_dhaka = datetime.now(dhaka_tz)
     last_refresh = st.session_state.get("last_refresh", None)
-    delay_text = ""
     if last_refresh:
-        delay_sec = (now_dhaka - last_refresh).total_seconds()
-        delay_text = f"Delay: {int(delay_sec)} sec"
     st.markdown(f"""
     <div style="display:flex;justify-content:space-between;align-items:center;font-family:sans-serif;">
         <div>
@@ -25,7 +22,6 @@ def render_header():
         </div>
         <div style="text-align:right; font-size:14px; color:#27AE60;">
             {now_dhaka.strftime('%d %b %Y | %H:%M:%S')}<br>
-            {delay_text}
         </div>
     </div>
     <hr>
@@ -114,9 +110,6 @@ if st.sidebar.button("🔄 Refresh Data"):
     st.session_state["last_refresh"] = datetime.now(dhaka_tz)
 else:
     raw_df = get_filtered_data(dt_start, dt_end)
-
-# Update header again with last_refresh info
-render_header()
 
 # ---------------- PRICE STAY ANALYSIS ----------------
 summary = []
