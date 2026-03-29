@@ -103,11 +103,15 @@ def get_filtered_data(start, end):
         return pd.DataFrame()
 
 # ---------------- MANUAL REFRESH ----------------
+if "refresh_click" not in st.session_state:
+    st.session_state["refresh_click"] = 0
+
 if st.sidebar.button("🔄 Refresh Data"):
-    st.cache_data.clear()
-    raw_df = get_filtered_data(dt_start, dt_end)
-else:
-    raw_df = get_filtered_data(dt_start, dt_end)
+    st.session_state["refresh_click"] += 1
+    st.cache_data.clear()  # clear cached data to refetch
+
+# Always fetch data using session state counter
+raw_df = get_filtered_data(dt_start, dt_end)
 
 # ---------------- PRICE STAY ANALYSIS ----------------
 summary = []
