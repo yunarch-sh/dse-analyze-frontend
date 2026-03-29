@@ -168,6 +168,7 @@ st.session_state["selected_stock"] = selected_stock
 
 if not raw_df.empty and selected_stock != "No Data":
     df_sub = raw_df[raw_df["TRADING CODE"] == selected_stock].copy()
+     df_sub = df_sub[df_sub["LTP*"] > 0].copy()
     total_volume = int(df_sub["VOLUME"].max() - df_sub["VOLUME"].min()) if not df_sub.empty else 0
 else:
     df_sub = pd.DataFrame()
