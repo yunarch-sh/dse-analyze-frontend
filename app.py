@@ -4,53 +4,51 @@ from pymongo import MongoClient
 import plotly.graph_objects as go
 from datetime import datetime, time
 import pytz
-import threading
-import time as pytime
+from streamlit_autorefresh import st_autorefresh
 
 # ---------------- GLOBAL SETTINGS ----------------
 dhaka_tz = pytz.timezone("Asia/Dhaka")
 st.set_page_config(page_title="DSE Alpha Tracker", layout="wide")
 
-# ---------------- HEADER PLACEHOLDER ----------------
-header_placeholder = st.empty()
-top_info_placeholder = st.empty()  # For current time + delay
+# ---------------- TOP INFO (TIME + DELAY) ----------------
+# Auto-refresh top info every 60 seconds
+refresh_count = st_autorefresh(interval=60*1000, limit=None, key="top_info_refresh")
+top_info_placeholder = st.empty()
 
-# ---------------- HEADER FUNCTION ----------------
-def render_header():
-    now = datetime.now(dhaka_tz)
-    header_placeholder.markdown(f"""
-    <div style="padding:20px 30px; margin-bottom:25px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; border-bottom:1px solid #444;">
-        <div>
-            <h1 style="font-family: 'Inter', sans-serif; font-size:32px; font-weight:700; color:#4A90E2; margin:0;">DSE ALPHA TRACKER</h1>
-            <p style="font-family: 'Inter', sans-serif; font-size:16px; font-weight:500; color:#E74C3C; margin:4px 0 0 0;">POC • PDB</p>
-        </div>
-        <div style="font-family: 'Inter', sans-serif; font-size:12px; color:#27AE60; text-align:right; line-height:1.2; border-left:1px solid #444; padding-left:15px;">
-            {now.strftime('%d %b %Y | %H:%M:%S')}
-        </div>
+now = datetime.now(dhaka_tz)
+last_refresh = st.session_state.get("last_refresh", now)
+delay_seconds = (now - last_refresh).total_seconds()
+delay_str = f"{int(delay_seconds//60)}m {int(delay_seconds%60)}s"
+
+top_info_placeholder.markdown(f"""
+<div style="display:flex; justify-content:space-between; font-family:sans-serif; font-size:14px; color:#00FF00; margin-bottom:10px;">
+    <span>Current Time: {now.strftime('%d %b %Y | %H:%M:%S')}</span>
+    <span>Delay since last refresh: {delay_str}</span>
+</div>
+""", unsafe_allow_html=True)
+
+# ---------------- HEADER ----------------
+st.markdown("""
+<style>
+.main-header { padding: 20px 30px; margin-bottom: 25px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; border-bottom: 1px solid #444; }
+.header-left { display: flex; flex-direction: column; }
+.project-title { font-family: 'Inter', sans-serif; font-size: 32px; font-weight: 700; color: #4A90E2 !important; margin: 0; }
+.project-subtitle { font-family: 'Inter', sans-serif; font-size: 16px; font-weight: 500; color: #E74C3C; margin: 4px 0 0 0; }
+.header-right { font-family: 'Inter', sans-serif; font-size: 12px; color: #27AE60; text-align: right; line-height: 1.2; border-left: 1px solid #444; padding-left: 15px; }
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown(f"""
+<div class="main-header">
+    <div class="header-left">
+        <h1 class="project-title">DSE ALPHA TRACKER</h1>
+        <p class="project-subtitle">POC • PDB</p>
     </div>
-    """, unsafe_allow_html=True)
-
-render_header()  # initial render
-
-# ---------------- DELAY THREAD ----------------
-def update_top_info():
-    while True:
-        now = datetime.now(dhaka_tz)
-        last_refresh = st.session_state.get("last_refresh")
-        delay_seconds = (now - last_refresh).total_seconds() if last_refresh else 0
-        delay_str = f"{int(delay_seconds//60)}m {int(delay_seconds%60)}s"
-        top_info_placeholder.markdown(f"""
-        <div style="display:flex;justify-content:space-between;align-items:center;font-family:sans-serif;font-size:14px;color:#00FF00;margin-bottom:10px;">
-            <span>Current Time: {now.strftime('%d %b %Y | %H:%M:%S')}</span>
-            <span>Delay since last refresh: {delay_str}</span>
-        </div>
-        """, unsafe_allow_html=True)
-        pytime.sleep(60)
-
-if "top_info_thread_started" not in st.session_state:
-    thread = threading.Thread(target=update_top_info, daemon=True)
-    thread.start()
-    st.session_state["top_info_thread_started"] = True
+    <div class="header-right">
+        {now.strftime('%d %b %Y | %H:%M:%S')}
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
 # ---------------- AUTH SYSTEM ----------------
 def check_password():
@@ -108,6 +106,14 @@ if st.sidebar.button("Log Out"):
     st.session_state["refresh_key"] = not st.session_state.get("refresh_key", False)
     st.experimental_rerun()
 
+# ---------------- MANUAL REFRESH SETTINGS ----------------
+if "refresh_key" not in st.session_state:
+    st.session_state["refresh_key"] = False
+
+if st.sidebar.button("🔄 Refresh Data"):
+    st.cache_data.clear()
+    st.session_state["refresh_key"] = not st.session_state["refresh_key"]
+
 # ---------------- DATA FETCH ----------------
 @st.cache_data(ttl=60)
 def get_filtered_data(start, end):
@@ -128,13 +134,8 @@ def get_filtered_data(start, end):
         st.error(f"Data Fetch Error: {e}")
         return pd.DataFrame()
 
-# ---------------- MANUAL REFRESH ----------------
-if st.sidebar.button("🔄 Refresh Data"):
-    st.cache_data.clear()
-    st.session_state["refresh_key"] = not st.session_state.get("refresh_key", False)
-
 with st.spinner("Fetching latest market data..."):
-    _ = st.session_state["refresh_key"]
+    _ = st.session_state["refresh_key"]  # force rerun
     raw_df = get_filtered_data(dt_start, dt_end)
     st.session_state["last_refresh"] = datetime.now(dhaka_tz)
 
@@ -266,31 +267,34 @@ if selected_stock != "No Data" and not df_sub.empty:
     )
     st.plotly_chart(fig_full, width='stretch')
 
-# ---------------- PER-TICK VOLUME DELTA ----------------
-df_sub = df_sub.copy()
-df_sub["VOL_DIFF"] = df_sub["VOLUME"].diff().fillna(0)
+# ---------------- PRICE / VOLUME HISTORY ----------------
+if not df_sub.empty:
+    df_sub = df_sub.copy()
+    df_sub["VOL_DIFF"] = df_sub["VOLUME"].diff().fillna(0)  # first entry has no previous, set 0
 
-st.subheader(f"⏱️ Price / Volume History — {selected_stock}")
-fig_hist = go.Figure()
+    st.subheader(f"⏱️ Price / Volume History — {selected_stock}")
+    fig_hist = go.Figure()
 
-fig_hist.add_trace(go.Scatter(
-    x=df_sub["captured_at"], y=df_sub["LTP*"],
-    name="Price", line=dict(color="#00CC96")
-))
+    # Price line
+    fig_hist.add_trace(go.Scatter(
+        x=df_sub["captured_at"], y=df_sub["LTP*"],
+        name="Price", line=dict(color="#00CC96")
+    ))
 
-fig_hist.add_trace(go.Bar(
-    x=df_sub["captured_at"], y=df_sub["VOL_DIFF"],
-    name="Volume Delta", yaxis="y2",
-    opacity=0.6, marker_color="#636EFA"
-))
+    # Per-tick volume bars
+    fig_hist.add_trace(go.Bar(
+        x=df_sub["captured_at"], y=df_sub["VOL_DIFF"],
+        name="Volume Delta", yaxis="y2",
+        opacity=0.6, marker_color="#636EFA"
+    ))
 
-fig_hist.update_layout(
-    template="plotly_dark", height=400,
-    yaxis=dict(title="Price"),
-    yaxis2=dict(overlaying="y", side="right", title="Volume"),
-    legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center"),
-    margin=dict(l=10, r=10, t=20, b=20)
-)
+    fig_hist.update_layout(
+        template="plotly_dark", height=400,
+        yaxis=dict(title="Price"),
+        yaxis2=dict(overlaying="y", side="right", title="Volume"),
+        legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center"),
+        margin=dict(l=10, r=10, t=20, b=20)
+    )
 
-st.plotly_chart(fig_hist, width='stretch')
-st.caption(f"Range: {display_start} to {display_end} | Dhaka Local Time")
+    st.plotly_chart(fig_hist, width='stretch')
+    st.caption(f"Range: {display_start} to {display_end} | Dhaka Local Time")
