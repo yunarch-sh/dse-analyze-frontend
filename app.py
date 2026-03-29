@@ -92,7 +92,7 @@ if st.sidebar.button("Log Out"):
 
 # ---------------- AUTO REFRESH SETTINGS ----------------
 st.sidebar.subheader("🔄 Auto Refresh Settings")
-auto_refresh = st.sidebar.checkbox("Enable Auto Refresh", value=True)
+auto_refresh = st.sidebar.checkbox("Enable Auto Refresh", value=false)
 refresh_interval = st.sidebar.number_input("Refresh interval (seconds)", min_value=10, max_value=3600, value=60, step=10)
 
 # Initialize refresh key
