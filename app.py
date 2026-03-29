@@ -94,7 +94,6 @@ st.sidebar.subheader("🔄 Auto Refresh Settings")
 auto_refresh = st.sidebar.checkbox("Enable Auto Refresh", value=False)
 refresh_interval = st.sidebar.number_input("Refresh interval (seconds)", min_value=10, max_value=3600, value=60, step=10)
 
-# Initialize refresh key
 if "refresh_key" not in st.session_state:
     st.session_state["refresh_key"] = False
 
@@ -119,24 +118,20 @@ def get_filtered_data(start, end):
         return pd.DataFrame()
 
 # ---------------- REFRESH DATA ----------------
-# Manual refresh button
 if st.sidebar.button("🔄 Refresh Data"):
     st.cache_data.clear()
     st.session_state["refresh_key"] = not st.session_state["refresh_key"]
 
-# Auto refresh
 if auto_refresh:
     import time as pytime
     pytime.sleep(refresh_interval)
     st.session_state["refresh_key"] = not st.session_state.get("refresh_key", False)
 
-# Spinner for fetching data
 with st.spinner("Fetching latest market data..."):
     _ = st.session_state["refresh_key"]  # force rerun
     raw_df = get_filtered_data(dt_start, dt_end)
     st.session_state["last_refresh"] = datetime.now(dhaka_tz)
 
-# Show last refreshed
 if "last_refresh" in st.session_state and st.session_state["last_refresh"]:
     st.sidebar.info(f"Last refreshed: {st.session_state['last_refresh'].strftime('%d %b %Y | %H:%M:%S')}")
 
@@ -193,7 +188,6 @@ selected_stock = st.selectbox(
 )
 st.session_state["selected_stock"] = selected_stock
 
-# ---------------- Calculate total volume ----------------
 if not raw_df.empty and selected_stock != "No Data":
     df_sub = raw_df[raw_df["TRADING CODE"] == selected_stock]
     total_volume = int(df_sub["VOLUME"].max() - df_sub["VOLUME"].min()) if not df_sub.empty else 0
@@ -234,6 +228,36 @@ if selected_stock != "No Data":
         margin=dict(l=10, r=10, t=80, b=20)
     )
     st.plotly_chart(fig_p, width='stretch')
+
+    # ---------------- FULL MARKET PROFILE (ALL PRICES) ----------------
+    st.subheader(f"📊 Full Market Profile — {selected_stock}")
+    full_df = df_sub.copy()
+    full_profile = full_df.groupby("LTP*").agg(
+        Vol_Traded=("VOLUME", lambda x: x.max() - x.min()),
+        Stay_Count=("captured_at", "count")
+    ).reset_index().sort_values("LTP*")
+    total_volume_full = full_profile["Vol_Traded"].sum()
+    full_profile["Vol % of Total"] = (full_profile["Vol_Traded"] / total_volume_full * 100) if total_volume_full>0 else 0
+
+    fig_full = go.Figure()
+    fig_full.add_trace(go.Bar(
+        y=full_profile["LTP*"], x=full_profile["Stay_Count"], orientation="h",
+        name="Time Stay", marker_color="#EF553B"
+    ))
+    fig_full.add_trace(go.Bar(
+        y=full_profile["LTP*"], x=full_profile["Vol_Traded"], orientation="h",
+        name="Volume", marker_color="#636EFA", base=full_profile["Stay_Count"],
+        hovertemplate="Price: %{y}<br>Volume: %{x}<br>Percent of total: %{customdata:.2f}%",
+        customdata=full_profile["Vol % of Total"]
+    ))
+    fig_full.update_layout(
+        barmode="stack", template="plotly_dark",
+        xaxis_title="Minutes / Volume", yaxis_title="Price (BDT)",
+        height=400 + len(full_profile)*10,
+        legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center"),
+        margin=dict(l=10, r=10, t=80, b=20)
+    )
+    st.plotly_chart(fig_full, width='stretch')
 
 # ---------------- PRICE HISTORY ----------------
 st.subheader(f"⏱️ Price / Volume History — {selected_stock}")
