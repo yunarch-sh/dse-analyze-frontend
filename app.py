@@ -4,51 +4,34 @@ from pymongo import MongoClient
 import plotly.graph_objects as go
 from datetime import datetime, time
 import pytz
-from streamlit_autorefresh import st_autorefresh
 
 # ---------------- GLOBAL SETTINGS ----------------
 dhaka_tz = pytz.timezone("Asia/Dhaka")
 st.set_page_config(page_title="DSE Alpha Tracker", layout="wide")
 
-# ---------------- TOP INFO (TIME + DELAY) ----------------
-# Auto-refresh top info every 60 seconds
-refresh_count = st_autorefresh(interval=60*1000, limit=None, key="top_info_refresh")
-top_info_placeholder = st.empty()
-
-now = datetime.now(dhaka_tz)
-last_refresh = st.session_state.get("last_refresh", now)
-delay_seconds = (now - last_refresh).total_seconds()
-delay_str = f"{int(delay_seconds//60)}m {int(delay_seconds%60)}s"
-
-top_info_placeholder.markdown(f"""
-<div style="display:flex; justify-content:space-between; font-family:sans-serif; font-size:14px; color:#00FF00; margin-bottom:10px;">
-    <span>Current Time: {now.strftime('%d %b %Y | %H:%M:%S')}</span>
-    <span>Delay since last refresh: {delay_str}</span>
-</div>
-""", unsafe_allow_html=True)
-
 # ---------------- HEADER ----------------
-st.markdown("""
-<style>
-.main-header { padding: 20px 30px; margin-bottom: 25px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; border-bottom: 1px solid #444; }
-.header-left { display: flex; flex-direction: column; }
-.project-title { font-family: 'Inter', sans-serif; font-size: 32px; font-weight: 700; color: #4A90E2 !important; margin: 0; }
-.project-subtitle { font-family: 'Inter', sans-serif; font-size: 16px; font-weight: 500; color: #E74C3C; margin: 4px 0 0 0; }
-.header-right { font-family: 'Inter', sans-serif; font-size: 12px; color: #27AE60; text-align: right; line-height: 1.2; border-left: 1px solid #444; padding-left: 15px; }
-</style>
-""", unsafe_allow_html=True)
+def render_header():
+    now_dhaka = datetime.now(dhaka_tz)
+    last_refresh = st.session_state.get("last_refresh", None)
+    delay_text = ""
+    if last_refresh:
+        delay_sec = (now_dhaka - last_refresh).total_seconds()
+        delay_text = f"Delay: {int(delay_sec)} sec"
+    st.markdown(f"""
+    <div style="display:flex;justify-content:space-between;align-items:center;font-family:sans-serif;">
+        <div>
+            <h1 style="margin:0; color:#4A90E2;">DSE ALPHA TRACKER</h1>
+            <p style="margin:0; color:#E74C3C;">POC • PDB</p>
+        </div>
+        <div style="text-align:right; font-size:14px; color:#27AE60;">
+            {now_dhaka.strftime('%d %b %Y | %H:%M:%S')}<br>
+            {delay_text}
+        </div>
+    </div>
+    <hr>
+    """, unsafe_allow_html=True)
 
-st.markdown(f"""
-<div class="main-header">
-    <div class="header-left">
-        <h1 class="project-title">DSE ALPHA TRACKER</h1>
-        <p class="project-subtitle">POC • PDB</p>
-    </div>
-    <div class="header-right">
-        {now.strftime('%d %b %Y | %H:%M:%S')}
-    </div>
-</div>
-""", unsafe_allow_html=True)
+render_header()
 
 # ---------------- AUTH SYSTEM ----------------
 def check_password():
@@ -66,7 +49,6 @@ def check_password():
             if (username == st.secrets["LOGIN"]["LOGIN_USER"] 
                 and password == st.secrets["LOGIN"]["LOGIN_PASS"]):
                 st.session_state["password_correct"] = True
-                st.session_state["refresh_key"] = not st.session_state.get("refresh_key", False)
             else:
                 st.error("Invalid credentials")
     return False
@@ -103,16 +85,7 @@ display_end = dt_end.astimezone(dhaka_tz).strftime("%H:%M")
 
 if st.sidebar.button("Log Out"):
     st.session_state["password_correct"] = False
-    st.session_state["refresh_key"] = not st.session_state.get("refresh_key", False)
     st.experimental_rerun()
-
-# ---------------- MANUAL REFRESH SETTINGS ----------------
-if "refresh_key" not in st.session_state:
-    st.session_state["refresh_key"] = False
-
-if st.sidebar.button("🔄 Refresh Data"):
-    st.cache_data.clear()
-    st.session_state["refresh_key"] = not st.session_state["refresh_key"]
 
 # ---------------- DATA FETCH ----------------
 @st.cache_data(ttl=60)
@@ -134,13 +107,16 @@ def get_filtered_data(start, end):
         st.error(f"Data Fetch Error: {e}")
         return pd.DataFrame()
 
-with st.spinner("Fetching latest market data..."):
-    _ = st.session_state["refresh_key"]  # force rerun
+# ---------------- MANUAL REFRESH ----------------
+if st.sidebar.button("🔄 Refresh Data"):
+    st.cache_data.clear()
     raw_df = get_filtered_data(dt_start, dt_end)
     st.session_state["last_refresh"] = datetime.now(dhaka_tz)
+else:
+    raw_df = get_filtered_data(dt_start, dt_end)
 
-if "last_refresh" in st.session_state and st.session_state["last_refresh"]:
-    st.sidebar.info(f"Last refreshed: {st.session_state['last_refresh'].strftime('%d %b %Y | %H:%M:%S')}")
+# Update header again with last_refresh info
+render_header()
 
 # ---------------- PRICE STAY ANALYSIS ----------------
 summary = []
@@ -196,22 +172,19 @@ selected_stock = st.selectbox(
 st.session_state["selected_stock"] = selected_stock
 
 if not raw_df.empty and selected_stock != "No Data":
-    df_sub = raw_df[raw_df["TRADING CODE"] == selected_stock]
+    df_sub = raw_df[raw_df["TRADING CODE"] == selected_stock].copy()
     total_volume = int(df_sub["VOLUME"].max() - df_sub["VOLUME"].min()) if not df_sub.empty else 0
 else:
     df_sub = pd.DataFrame()
     total_volume = 0
 
 # ---------------- PRICE / VOLUME PROFILE ----------------
-if selected_stock != "No Data":
+if selected_stock != "No Data" and not df_sub.empty:
     stock_summary = analysis_df[analysis_df["Stock"]==selected_stock]
-    if not stock_summary.empty:
-        profile_data = stock_summary.groupby("Price").agg({
-            "Vol Traded":"sum",
-            "Stay (Mins)":"sum"
-        }).reset_index().sort_values("Price")
-    else:
-        profile_data = pd.DataFrame(columns=["Price","Vol Traded","Stay (Mins)"])
+    profile_data = stock_summary.groupby("Price").agg({
+        "Vol Traded":"sum",
+        "Stay (Mins)":"sum"
+    }).reset_index().sort_values("Price") if not stock_summary.empty else pd.DataFrame(columns=["Price","Vol Traded","Stay (Mins)"])
 
     st.subheader(f"📊 PDB STAY PRICE Profile — {selected_stock}")
     profile_data["Vol % of Total"] = (profile_data["Vol Traded"]/total_volume*100) if total_volume>0 else 0
@@ -269,25 +242,17 @@ if selected_stock != "No Data" and not df_sub.empty:
 
 # ---------------- PRICE / VOLUME HISTORY ----------------
 if not df_sub.empty:
-    df_sub = df_sub.copy()
-    df_sub["VOL_DIFF"] = df_sub["VOLUME"].diff().fillna(0)  # first entry has no previous, set 0
+    df_sub["VOL_DIFF"] = df_sub["VOLUME"].diff().fillna(0)
 
     st.subheader(f"⏱️ Price / Volume History — {selected_stock}")
     fig_hist = go.Figure()
-
-    # Price line
     fig_hist.add_trace(go.Scatter(
-        x=df_sub["captured_at"], y=df_sub["LTP*"],
-        name="Price", line=dict(color="#00CC96")
+        x=df_sub["captured_at"], y=df_sub["LTP*"], name="Price", line=dict(color="#00CC96")
     ))
-
-    # Per-tick volume bars
     fig_hist.add_trace(go.Bar(
-        x=df_sub["captured_at"], y=df_sub["VOL_DIFF"],
-        name="Volume Delta", yaxis="y2",
+        x=df_sub["captured_at"], y=df_sub["VOL_DIFF"], name="Volume Delta", yaxis="y2",
         opacity=0.6, marker_color="#636EFA"
     ))
-
     fig_hist.update_layout(
         template="plotly_dark", height=400,
         yaxis=dict(title="Price"),
@@ -295,6 +260,6 @@ if not df_sub.empty:
         legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center"),
         margin=dict(l=10, r=10, t=20, b=20)
     )
-
     st.plotly_chart(fig_hist, width='stretch')
-    st.caption(f"Range: {display_start} to {display_end} | Dhaka Local Time")
+
+st.caption(f"Range: {display_start} to {display_end} | Dhaka Local Time")
