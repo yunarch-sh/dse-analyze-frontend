@@ -12,6 +12,13 @@ now_dhaka = datetime.now(dhaka_tz)
 
 st.set_page_config(page_title="DSE Alpha Tracker", layout="wide")
 
+# ---------------- SESSION STATE ----------------
+if "refresh_trigger" not in st.session_state:
+    st.session_state["refresh_trigger"] = 0
+
+if "last_refresh_time" not in st.session_state:
+    st.session_state["last_refresh_time"] = now_dhaka
+
 # ---------------- HEADER STYLE ----------------
 st.markdown("""
 <style>
@@ -29,7 +36,6 @@ st.markdown("""
 .project-subtitle {
     font-size: 16px;
     color: #E74C3C;
-    margin: 4px 0 0 0;
 }
 .header-right {
     font-size: 12px;
@@ -39,7 +45,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ---------------- HEADER ----------------
-col1, col2 = st.columns([8,1])
+col1, col2 = st.columns([7,2])
 
 with col1:
     st.markdown(f"""
@@ -51,9 +57,13 @@ with col1:
     """, unsafe_allow_html=True)
 
 with col2:
-    if st.button("🔄", help="Refresh Data"):
-        st.cache_data.clear()
-        st.rerun()
+    st.markdown("###")
+    if st.button("🔄 Refresh Data", use_container_width=True):
+        st.session_state["refresh_trigger"] += 1
+        st.session_state["last_refresh_time"] = datetime.now(dhaka_tz)
+
+# Last refresh info
+st.caption(f"🟢 Last Refreshed: {st.session_state['last_refresh_time'].strftime('%H:%M:%S')}")
 
 # ---------------- AUTH ----------------
 def check_password():
@@ -77,7 +87,7 @@ def check_password():
 if not check_password():
     st.stop()
 
-# ---------------- DB ----------------
+# ---------------- DATABASE ----------------
 @st.cache_resource
 def init_connection():
     client = MongoClient(st.secrets["MONGO"]["MONGO_URI"])
@@ -93,10 +103,13 @@ auto_refresh = st.sidebar.toggle("Auto Refresh", value=False)
 
 refresh_interval = 60
 if auto_refresh:
-    refresh_interval = st.sidebar.number_input(
-        "Interval (seconds)", 10, 3600, 60, step=10
-    )
+    refresh_interval = st.sidebar.number_input("Interval (seconds)", 10, 3600, 60)
     st_autorefresh(interval=refresh_interval * 1000, key="auto_refresh")
+
+    # trigger refresh
+    st.session_state["refresh_trigger"] += 1
+    st.session_state["last_refresh_time"] = datetime.now(dhaka_tz)
+
     st.sidebar.success(f"Running every {refresh_interval}s")
 else:
     st.sidebar.caption("Manual mode")
@@ -124,9 +137,9 @@ if st.sidebar.button("Log Out"):
     st.session_state["password_correct"] = False
     st.rerun()
 
-# ---------------- DATA ----------------
+# ---------------- DATA FETCH ----------------
 @st.cache_data(ttl=10)
-def get_filtered_data(start, end):
+def get_filtered_data(start, end, refresh_key):
     query = {"captured_at": {"$gte": start, "$lte": end}}
     cursor = collection.find(query).sort("captured_at", 1)
     df = pd.DataFrame(list(cursor))
@@ -142,7 +155,9 @@ def get_filtered_data(start, end):
     df["captured_at"] = df["captured_at"].dt.tz_convert(dhaka_tz)
     return df
 
-raw_df = get_filtered_data(dt_start, dt_end)
+# Fetch with spinner
+with st.spinner("Fetching latest market data..."):
+    raw_df = get_filtered_data(dt_start, dt_end, st.session_state["refresh_trigger"])
 
 # ---------------- ANALYSIS ----------------
 summary = []
@@ -184,7 +199,7 @@ st.subheader("📋 Ranked Price Stays")
 st.dataframe(analysis_df, use_container_width=True, hide_index=True)
 st.divider()
 
-# ---------------- STOCK ----------------
+# ---------------- STOCK VIEW ----------------
 stock_list = (
     sorted(analysis_df["Stock"].unique())
     if not analysis_df.empty
@@ -248,7 +263,6 @@ if selected_stock != "No Data":
         name="Volume",
         marker_color="#636EFA",
         base=profile_data["Stay (Mins)"],
-        hovertemplate="Price: %{y}<br>Volume: %{x}<br>%: %{customdata:.2f}",
         customdata=profile_data["Vol % of Total"]
     ))
 
@@ -256,15 +270,14 @@ if selected_stock != "No Data":
         barmode="stack",
         template="plotly_dark",
         xaxis_title="Minutes / Volume",
-        yaxis_title="Price (BDT)",
-        height=400 + len(profile_data) * 10,
-        legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center")
+        yaxis_title="Price (BDT)"
     )
 
     st.plotly_chart(fig_p, use_container_width=True)
 
     # ---------------- HISTORY ----------------
     df_sub = raw_df[raw_df["TRADING CODE"] == selected_stock]
+
     st.subheader(f"⏱️ Price / Volume History — {selected_stock}")
 
     fig_hist = go.Figure()
@@ -272,27 +285,20 @@ if selected_stock != "No Data":
         fig_hist.add_trace(go.Scatter(
             x=df_sub["captured_at"],
             y=df_sub["LTP*"],
-            name="Price",
-            line=dict(color="#00CC96")
+            name="Price"
         ))
         fig_hist.add_trace(go.Bar(
             x=df_sub["captured_at"],
             y=df_sub["VOLUME"],
             name="Volume",
-            yaxis="y2",
-            opacity=0.3,
-            marker_color="#636EFA"
+            yaxis="y2"
         ))
 
     fig_hist.update_layout(
         template="plotly_dark",
-        height=400,
-        yaxis=dict(title="Price"),
-        yaxis2=dict(overlaying="y", side="right", title="Volume"),
-        legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center")
+        yaxis2=dict(overlaying="y", side="right")
     )
 
     st.plotly_chart(fig_hist, use_container_width=True)
 
-st.divider()
-st.caption(f"Range: {display_start} to {display_end} | Dhaka Local Time")
+st.caption(f"Range: {display_start} to {display_end} | Dhaka Time")
