@@ -161,7 +161,7 @@ analysis_df = pd.DataFrame(summary).sort_values("Stay (Mins)", ascending=False) 
 
 # ---------------- RANKED TABLE ----------------
 st.subheader("📋 Ranked Price Stays")
-st.dataframe(analysis_df, width=None, hide_index=True)
+st.dataframe(analysis_df, width='stretch', hide_index=True)
 st.divider()
 
 # ---------------- DETAILED VIEW ----------------
