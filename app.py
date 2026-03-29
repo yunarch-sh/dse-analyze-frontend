@@ -14,6 +14,7 @@ st.set_page_config(
     page_title="DSE Alpha Tracker",
     layout="wide",
 )
+
 st.markdown("""
 <style>
 .main-header {
@@ -25,34 +26,26 @@ st.markdown("""
     flex-wrap: wrap;
     border-bottom: 1px solid #444;
 }
-
 .header-left {
     display: flex;
     flex-direction: column;
 }
-
 .project-title {
-    font-family: 'Inter', sans-serif;
     font-size: 32px;
     font-weight: 700;
     color: #4A90E2 !important;
     margin: 0;
 }
-
 .project-subtitle {
-    font-family: 'Inter', sans-serif;
     font-size: 16px;
     font-weight: 500;
     color: #E74C3C;
     margin: 4px 0 0 0;
 }
-
 .header-right {
-    font-family: 'Inter', sans-serif;
     font-size: 12px;
     color: #27AE60;
     text-align: right;
-    line-height: 1.2;
     border-left: 1px solid #444;
     padding-left: 15px;
 }
@@ -70,8 +63,6 @@ st.markdown(f"""
     </div>
 </div>
 """, unsafe_allow_html=True)
-
-st_autorefresh(interval=60000, key="refresh")
 
 # ---------------- AUTH SYSTEM ----------------
 def check_password():
@@ -96,22 +87,45 @@ def check_password():
 if not check_password():
     st.stop()
 
-# ---------------- DATABASE CONNECTION ----------------
+# ---------------- DATABASE ----------------
 @st.cache_resource
 def init_connection():
-    try:
-        client = MongoClient(st.secrets["MONGO"]["MONGO_URI"])
-        db = client["DSE_Market_Data"]
-        collection = db["price_logs"]
-        return collection
-    except Exception as e:
-        st.error(f"MongoDB Connection Failed: {e}")
-        st.stop()
+    client = MongoClient(st.secrets["MONGO"]["MONGO_URI"])
+    db = client["DSE_Market_Data"]
+    return db["price_logs"]
 
 collection = init_connection()
 
-# ---------------- SIDEBAR FILTERS ----------------
+# ---------------- SIDEBAR ----------------
 st.sidebar.header("⏳ Filter Data")
+
+# 🔄 Manual refresh
+if st.sidebar.button("🔄 Refresh Now"):
+    st.cache_data.clear()
+    st.rerun()
+
+st.sidebar.divider()
+
+# ⚡ Auto refresh toggle
+auto_refresh = st.sidebar.toggle("⚡ Auto Refresh", value=False)
+
+refresh_interval = 60
+if auto_refresh:
+    refresh_interval = st.sidebar.number_input(
+        "Refresh Interval (seconds)",
+        min_value=10,
+        max_value=3600,
+        value=60,
+        step=10
+    )
+    st_autorefresh(interval=refresh_interval * 1000, key="auto_refresh")
+    st.sidebar.success(f"Auto refresh every {refresh_interval}s")
+else:
+    st.sidebar.info("Manual refresh mode")
+
+st.sidebar.divider()
+
+# Filters
 sel_date = st.sidebar.date_input("Select Date", now_dhaka)
 
 t_start, t_end = st.sidebar.slider(
@@ -133,179 +147,78 @@ if st.sidebar.button("Log Out"):
 # ---------------- DATA FETCH ----------------
 @st.cache_data(ttl=60)
 def get_filtered_data(start, end):
-    try:
-        query = {"captured_at": {"$gte": start, "$lte": end}}
-        cursor = collection.find(query).sort("captured_at", 1)
-        df = pd.DataFrame(list(cursor))
-        if df.empty:
-            return df
+    query = {"captured_at": {"$gte": start, "$lte": end}}
+    cursor = collection.find(query).sort("captured_at", 1)
+    df = pd.DataFrame(list(cursor))
 
-        # Convert captured_at safely
-        df["captured_at"] = pd.to_datetime(df["captured_at"], errors='coerce')
-
-        # Force all times to UTC first, whether aware or naive
-        df["captured_at"] = df["captured_at"].apply(
-            lambda x: x.tz_convert("UTC") if pd.notnull(x) and x.tzinfo else (x.tz_localize("UTC") if pd.notnull(x) else x)
-        )
-
-        # Convert to Dhaka timezone
-        df["captured_at"] = df["captured_at"].dt.tz_convert(dhaka_tz)
+    if df.empty:
         return df
-    except Exception as e:
-        st.error(f"Data Fetch Error: {e}")
-        return pd.DataFrame()
+
+    df["captured_at"] = pd.to_datetime(df["captured_at"], errors='coerce')
+    df["captured_at"] = df["captured_at"].apply(
+        lambda x: x.tz_convert("UTC") if pd.notnull(x) and x.tzinfo else (x.tz_localize("UTC") if pd.notnull(x) else x)
+    )
+    df["captured_at"] = df["captured_at"].dt.tz_convert(dhaka_tz)
+    return df
 
 raw_df = get_filtered_data(dt_start, dt_end)
 
-# ---------------- PRICE STAY ANALYSIS ----------------
+# ---------------- ANALYSIS ----------------
 summary = []
 if not raw_df.empty:
     for stock, group in raw_df.groupby("TRADING CODE"):
-        if len(group) < 2: continue
+        if len(group) < 2:
+            continue
+
         group = group.copy()
         group["price_changed"] = group["LTP*"] != group["LTP*"].shift()
         group["stay_id"] = group["price_changed"].cumsum()
 
-        for stay_id, stay_group in group.groupby("stay_id"):
-            if len(stay_group) < 2: continue
-            price = float(stay_group["LTP*"].iloc[0])
-            start_t = stay_group["captured_at"].iloc[0]
-            end_t = stay_group["captured_at"].iloc[-1]
-            duration = (end_t - start_t).total_seconds() / 60
+        for _, stay_group in group.groupby("stay_id"):
+            if len(stay_group) < 2:
+                continue
+
+            duration = (stay_group["captured_at"].iloc[-1] - stay_group["captured_at"].iloc[0]).total_seconds() / 60
             vol_diff = int(stay_group["VOLUME"].iloc[-1] - stay_group["VOLUME"].iloc[0])
 
             if vol_diff > 0:
                 summary.append({
                     "Stock": stock,
-                    "Price": price,
+                    "Price": float(stay_group["LTP*"].iloc[0]),
                     "Stay (Mins)": round(duration, 1),
                     "Vol Traded": vol_diff,
-                    "Start": start_t.strftime("%H:%M"),
-                    "End": end_t.strftime("%H:%M"),
+                    "Start": stay_group["captured_at"].iloc[0].strftime("%H:%M"),
+                    "End": stay_group["captured_at"].iloc[-1].strftime("%H:%M"),
                 })
 
-analysis_df = pd.DataFrame(summary).sort_values("Stay (Mins)", ascending=False) if summary else pd.DataFrame(
-    columns=["Stock", "Price", "Stay (Mins)", "Vol Traded", "Start", "End"]
-)
+analysis_df = pd.DataFrame(summary).sort_values("Stay (Mins)", ascending=False) if summary else pd.DataFrame()
 
-# ---------------- RANKED TABLE ----------------
+# ---------------- TABLE ----------------
 st.subheader("📋 Ranked Price Stays")
-st.dataframe(analysis_df, use_container_width=True, hide_index=True)
-st.divider()
+st.dataframe(analysis_df, use_container_width=True)
 
-# ---------------- DETAILED VIEW ----------------
+# ---------------- STOCK VIEW ----------------
 stock_list = (
     sorted(analysis_df["Stock"].unique())
-    if not analysis_df.empty
-    else sorted(raw_df["TRADING CODE"].unique())
-    if not raw_df.empty
-    else ["No Data"]
+    if not analysis_df.empty else ["No Data"]
 )
 
-# ---------------- STOCK SELECTION (STATEFUL) ----------------
-if "selected_stock" not in st.session_state:
-    st.session_state["selected_stock"] = stock_list[0]
+selected_stock = st.selectbox("Select Stock", stock_list)
 
-selected_stock = st.selectbox(
-    "🔍 Select Stock for Detailed View",
-    stock_list,
-    index=stock_list.index(st.session_state["selected_stock"])
-    if st.session_state["selected_stock"] in stock_list else 0
-)
-
-st.session_state["selected_stock"] = selected_stock
-
-# ---------------- Calculate total volume for the selected stock ----------------
-total_volume = 0
-if not raw_df.empty:
-    df_sub = raw_df[raw_df["TRADING CODE"] == selected_stock]
-    if not df_sub.empty:
-        total_volume = int(df_sub["VOLUME"].max() - df_sub["VOLUME"].min())
-
-# ---------------- PRICE / VOLUME PROFILE ----------------
 if selected_stock != "No Data":
-    stock_summary = analysis_df[analysis_df["Stock"] == selected_stock]
-    if not stock_summary.empty:
-        profile_data = (
-            stock_summary.groupby("Price")
-            .agg({"Vol Traded": "sum", "Stay (Mins)": "sum"})
-            .reset_index()
-            .sort_values("Price")
-        )
-    else:
-        profile_data = pd.DataFrame(columns=["Price", "Vol Traded", "Stay (Mins)"])
+    df_sub = raw_df[raw_df["TRADING CODE"] == selected_stock]
 
-    st.subheader(f"📊 Market Profile — {selected_stock}")
+    st.subheader(f"📊 {selected_stock}")
 
-    if total_volume > 0:
-        profile_data["Vol % of Total"] = (profile_data["Vol Traded"] / total_volume) * 100
-    else:
-        profile_data["Vol % of Total"] = 0
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=df_sub["captured_at"], y=df_sub["LTP*"], name="Price"))
+    fig.add_trace(go.Bar(x=df_sub["captured_at"], y=df_sub["VOLUME"], name="Volume", yaxis="y2"))
 
-    # ---- SINGLE STACKED HORIZONTAL BARS ----
-    fig_p = go.Figure()
-    fig_p.add_trace(go.Bar(
-        y=profile_data["Price"],
-        x=profile_data["Stay (Mins)"],
-        orientation="h",
-        name="Time Stay",
-        marker_color="#EF553B"
-    ))
-    fig_p.add_trace(go.Bar(
-        y=profile_data["Price"],
-        x=profile_data["Vol Traded"],
-        orientation="h",
-        name="Volume",
-        marker_color="#636EFA",
-        base=profile_data["Stay (Mins)"],  # stack on top of Time Stay
-        hovertemplate=(
-            "Price: %{y}<br>"
-            "Volume: %{x}<br>"
-            "Percent of total: %{customdata:.2f}%"
-        ),
-        customdata=profile_data["Vol % of Total"]
-    ))
-
-    fig_p.update_layout(
-        barmode="stack",
+    fig.update_layout(
         template="plotly_dark",
-        xaxis_title="Minutes / Volume",
-        yaxis_title="Price (BDT)",
-        height=400 + len(profile_data) * 10,
-        legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center"),
-        margin=dict(l=10, r=10, t=80, b=20)
+        yaxis2=dict(overlaying="y", side="right")
     )
 
-    st.plotly_chart(fig_p, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True)
 
-    # ---------------- PRICE HISTORY ----------------
-    df_sub = raw_df[raw_df["TRADING CODE"] == selected_stock] if not raw_df.empty else pd.DataFrame()
-    st.subheader(f"⏱️ Price / Volume History — {selected_stock}")
-    fig_hist = go.Figure()
-    if not df_sub.empty:
-        fig_hist.add_trace(go.Scatter(
-            x=df_sub["captured_at"],
-            y=df_sub["LTP*"],
-            name="Price",
-            line=dict(color="#00CC96")
-        ))
-        fig_hist.add_trace(go.Bar(
-            x=df_sub['captured_at'],
-            y=df_sub['VOLUME'],
-            name="Volume",
-            yaxis="y2",
-            opacity=0.3,
-            marker_color="#636EFA"
-        ))
-    fig_hist.update_layout(
-        template="plotly_dark",
-        height=400,
-        yaxis=dict(title="Price"),
-        yaxis2=dict(overlaying="y", side="right", title="Volume"),
-        legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center"),
-        margin=dict(l=10, r=10, t=20, b=20)
-    )
-    st.plotly_chart(fig_hist, use_container_width=True)
-
-st.divider()
-st.caption(f"Range: {display_start} to {display_end} | Dhaka Local Time")
+st.caption(f"Range: {display_start} to {display_end} | Dhaka Time")
