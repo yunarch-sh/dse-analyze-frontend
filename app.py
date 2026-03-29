@@ -206,7 +206,7 @@ if selected_stock != "No Data":
     else:
         profile_data = pd.DataFrame(columns=["Price","Vol Traded","Stay (Mins)"])
 
-    st.subheader(f"📊 Market Profile — {selected_stock}")
+    st.subheader(f"📊 PDB STAY PRICE Profile — {selected_stock}")
     profile_data["Vol % of Total"] = (profile_data["Vol Traded"]/total_volume*100) if total_volume>0 else 0
 
     fig_p = go.Figure()
@@ -230,7 +230,7 @@ if selected_stock != "No Data":
     st.plotly_chart(fig_p, width='stretch')
 
     # ---------------- FULL MARKET PROFILE (ALL PRICES) ----------------
-    st.subheader(f"📊 Full Market Profile — {selected_stock}")
+    st.subheader(f"📊 PDB ALL Price — {selected_stock}")
     full_df = df_sub.copy()
     full_profile = full_df.groupby("LTP*").agg(
         Vol_Traded=("VOLUME", lambda x: x.max() - x.min()),
@@ -259,25 +259,33 @@ if selected_stock != "No Data":
     )
     st.plotly_chart(fig_full, width='stretch')
 
-# ---------------- PRICE HISTORY ----------------
+# Compute per-tick volume change
+df_sub = df_sub.copy()
+df_sub["VOL_DIFF"] = df_sub["VOLUME"].diff().fillna(0)  # first entry has no previous, set 0
+
 st.subheader(f"⏱️ Price / Volume History — {selected_stock}")
 fig_hist = go.Figure()
-if not df_sub.empty:
-    fig_hist.add_trace(go.Scatter(
-        x=df_sub["captured_at"], y=df_sub["LTP*"], name="Price", line=dict(color="#00CC96")
-    ))
-    fig_hist.add_trace(go.Bar(
-        x=df_sub["captured_at"], y=df_sub["VOLUME"], name="Volume",
-        yaxis="y2", opacity=0.3, marker_color="#636EFA"
-    ))
+
+# Price line
+fig_hist.add_trace(go.Scatter(
+    x=df_sub["captured_at"], y=df_sub["LTP*"],
+    name="Price", line=dict(color="#00CC96")
+))
+
+# Per-tick volume bars
+fig_hist.add_trace(go.Bar(
+    x=df_sub["captured_at"], y=df_sub["VOL_DIFF"],
+    name="Volume Delta", yaxis="y2",
+    opacity=0.6, marker_color="#636EFA"
+))
 
 fig_hist.update_layout(
     template="plotly_dark", height=400,
     yaxis=dict(title="Price"),
     yaxis2=dict(overlaying="y", side="right", title="Volume"),
     legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center"),
-    margin=dict(l=10,r=10,t=20,b=20)
+    margin=dict(l=10, r=10, t=20, b=20)
 )
+
 st.plotly_chart(fig_hist, width='stretch')
-st.divider()
 st.caption(f"Range: {display_start} to {display_end} | Dhaka Local Time")
