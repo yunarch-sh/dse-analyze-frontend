@@ -114,8 +114,11 @@ raw_df = get_filtered_data(dt_start, dt_end)
 # ---------------- CALCULATE VOL_DIFF ONCE ----------------
 if not raw_df.empty:
     raw_df = raw_df.sort_values(["TRADING CODE", "captured_at"])
+    # Compute volume differences per stock
     raw_df["VOL_DIFF"] = raw_df.groupby("TRADING CODE")["VOLUME"].diff()
-    raw_df["VOL_DIFF"] = raw_df.groupby("TRADING CODE")["VOL_DIFF"].apply(lambda x: x.fillna(x.iloc[0]))
+    # Fill the first value per group with the first VOLUME
+    raw_df["VOL_DIFF"] = raw_df.groupby("TRADING CODE")["VOL_DIFF"].transform(lambda x: x.fillna(x.iloc[0]))
+    # Ensure no negative volume
     raw_df["VOL_DIFF"] = raw_df["VOL_DIFF"].clip(lower=0)
 
 # ---------------- PRICE STAY ANALYSIS ----------------
