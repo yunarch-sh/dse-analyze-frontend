@@ -209,8 +209,12 @@ if selected_stock != "No Data" and not df_sub.empty:
 if selected_stock != "No Data" and not df_sub.empty:
     st.subheader(f"📊 PDB ALL Price — {selected_stock}")
     full_df = df_sub.copy()
+    # 🔥 FIX: convert cumulative volume → incremental trades
+    full_df["VOL_DIFF"] = full_df["VOLUME"].diff().fillna(0)
+
+    # 🔥 FIX: group using real traded volume
     full_profile = full_df.groupby("LTP*").agg(
-        Vol_Traded=("VOLUME", lambda x: x.max() - x.min()),
+        Vol_Traded=("VOL_DIFF", "sum"),
         Stay_Count=("captured_at", "count")
     ).reset_index().sort_values("LTP*")
     total_volume_full = full_profile["Vol_Traded"].sum()
