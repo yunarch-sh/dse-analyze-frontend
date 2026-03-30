@@ -111,6 +111,13 @@ if st.sidebar.button("🔄 Refresh Data"):
 
 raw_df = get_filtered_data(dt_start, dt_end)
 
+# ---------------- CALCULATE VOL_DIFF ONCE ----------------
+if not raw_df.empty:
+    raw_df = raw_df.sort_values(["TRADING CODE", "captured_at"])
+    raw_df["VOL_DIFF"] = raw_df.groupby("TRADING CODE")["VOLUME"].diff()
+    raw_df["VOL_DIFF"] = raw_df.groupby("TRADING CODE")["VOL_DIFF"].apply(lambda x: x.fillna(x.iloc[0]))
+    raw_df["VOL_DIFF"] = raw_df["VOL_DIFF"].clip(lower=0)
+
 # ---------------- PRICE STAY ANALYSIS ----------------
 summary = []
 if not raw_df.empty:
@@ -127,7 +134,7 @@ if not raw_df.empty:
             start_t = stay_group["captured_at"].iloc[0]
             end_t = stay_group["captured_at"].iloc[-1]
             duration = (end_t - start_t).total_seconds() / 60
-            vol_diff = int(stay_group["VOLUME"].iloc[-1] - stay_group["VOLUME"].iloc[0])
+            vol_diff = int(stay_group["VOL_DIFF"].sum())
             if vol_diff > 0:
                 summary.append({
                     "Stock": stock,
@@ -167,12 +174,7 @@ st.session_state["selected_stock"] = selected_stock
 if not raw_df.empty and selected_stock != "No Data":
     df_sub = raw_df[raw_df["TRADING CODE"] == selected_stock].copy()
     df_sub = df_sub[df_sub["LTP*"] > 0].copy()
-    df_sub = df_sub.sort_values("captured_at")
-    
-    # ---------------- VOL_DIFF COMPUTATION (ONCE) ----------------
-    df_sub["VOL_DIFF"] = df_sub["VOLUME"].diff().fillna(df_sub["VOLUME"]).clip(lower=0)
-
-    total_volume = int(df_sub["VOLUME"].max() - df_sub["VOLUME"].min()) if not df_sub.empty else 0
+    total_volume = int(df_sub["VOL_DIFF"].sum()) if not df_sub.empty else 0
 else:
     df_sub = pd.DataFrame()
     total_volume = 0
@@ -208,15 +210,13 @@ if selected_stock != "No Data" and not df_sub.empty:
     )
     st.plotly_chart(fig_p, width='stretch')
 
-# ---------------- FULL MARKET PROFILE (ALL PRICES) ----------------
+# ---------------- FULL MARKET PROFILE ----------------
 if selected_stock != "No Data" and not df_sub.empty:
     st.subheader(f"📊 PDB ALL Price — {selected_stock}")
-
     full_profile = df_sub.groupby("LTP*").agg(
         Vol_Traded=("VOL_DIFF", "sum"),
         Stay_Count=("captured_at", "count")
     ).reset_index().sort_values("LTP*")
-
     total_volume_full = full_profile["Vol_Traded"].sum()
     full_profile["Vol % of Total"] = (full_profile["Vol_Traded"] / total_volume_full * 100) if total_volume_full>0 else 0
 
@@ -231,11 +231,9 @@ if selected_stock != "No Data" and not df_sub.empty:
         hovertemplate="Price: %{y}<br>Volume: %{x}<br>Percent of total: %{customdata:.2f}%",
         customdata=full_profile["Vol % of Total"]
     ))
-
     fig_full.update_layout(
         barmode="stack", template="plotly_dark",
         xaxis_title="Minutes / Volume", yaxis_title="Price (BDT)",
-        yaxis=dict(range=[full_profile["LTP*"].min(), full_profile["LTP*"].max()]),
         height=400 + len(full_profile)*10,
         legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center"),
         margin=dict(l=10, r=10, t=80, b=20)
