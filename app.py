@@ -25,7 +25,6 @@ def render_header():
     <hr>
     """, unsafe_allow_html=True)
 
-# Render header once
 render_header()
 
 # ---------------- AUTH SYSTEM ----------------
@@ -108,9 +107,8 @@ if "refresh_click" not in st.session_state:
 
 if st.sidebar.button("🔄 Refresh Data"):
     st.session_state["refresh_click"] += 1
-    st.cache_data.clear()  # clear cached data to refetch
+    st.cache_data.clear()
 
-# Always fetch data using session state counter
 raw_df = get_filtered_data(dt_start, dt_end)
 
 # ---------------- PRICE STAY ANALYSIS ----------------
@@ -208,15 +206,17 @@ if selected_stock != "No Data" and not df_sub.empty:
 # ---------------- FULL MARKET PROFILE (ALL PRICES) ----------------
 if selected_stock != "No Data" and not df_sub.empty:
     st.subheader(f"📊 PDB ALL Price — {selected_stock}")
-    full_df = df_sub.copy()
-    # 🔥 FIX: convert cumulative volume → incremental trades
-    full_df["VOL_DIFF"] = full_df["VOLUME"].diff().fillna(0)
+    full_df = df_sub.copy().sort_values("captured_at")
 
-    # 🔥 FIX: group using real traded volume
+    # 🔥 FIX: calculate incremental volume correctly
+    full_df["VOL_DIFF"] = full_df["VOLUME"].diff().fillna(full_df["VOLUME"])
+    full_df["VOL_DIFF"] = full_df["VOL_DIFF"].clip(lower=0)  # prevent negative spikes
+
     full_profile = full_df.groupby("LTP*").agg(
         Vol_Traded=("VOL_DIFF", "sum"),
         Stay_Count=("captured_at", "count")
     ).reset_index().sort_values("LTP*")
+
     total_volume_full = full_profile["Vol_Traded"].sum()
     full_profile["Vol % of Total"] = (full_profile["Vol_Traded"] / total_volume_full * 100) if total_volume_full>0 else 0
 
@@ -231,13 +231,11 @@ if selected_stock != "No Data" and not df_sub.empty:
         hovertemplate="Price: %{y}<br>Volume: %{x}<br>Percent of total: %{customdata:.2f}%",
         customdata=full_profile["Vol % of Total"]
     ))
-    y_min = full_profile["LTP*"].min()
-    y_max = full_profile["LTP*"].max()
 
     fig_full.update_layout(
         barmode="stack", template="plotly_dark",
         xaxis_title="Minutes / Volume", yaxis_title="Price (BDT)",
-        yaxis=dict(range=[y_min, y_max]),  # <-- force Y-axis to start from lowest price
+        yaxis=dict(range=[full_profile["LTP*"].min(), full_profile["LTP*"].max()]),
         height=400 + len(full_profile)*10,
         legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center"),
         margin=dict(l=10, r=10, t=80, b=20)
@@ -246,7 +244,8 @@ if selected_stock != "No Data" and not df_sub.empty:
 
 # ---------------- PRICE / VOLUME HISTORY ----------------
 if not df_sub.empty:
-    df_sub["VOL_DIFF"] = df_sub["VOLUME"].diff().fillna(0)
+    df_sub["VOL_DIFF"] = df_sub["VOLUME"].diff().fillna(df_sub["VOLUME"])
+    df_sub["VOL_DIFF"] = df_sub["VOL_DIFF"].clip(lower=0)
 
     st.subheader(f"⏱️ Price / Volume History — {selected_stock}")
     fig_hist = go.Figure()
