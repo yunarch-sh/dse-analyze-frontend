@@ -116,8 +116,8 @@ if not raw_df.empty:
     raw_df = raw_df.sort_values(["TRADING CODE", "captured_at"])
     # Compute volume differences per stock
     raw_df["VOL_DIFF"] = raw_df.groupby("TRADING CODE")["VOLUME"].diff()
-    # Fill the first value per group with the first VOLUME
-    raw_df["VOL_DIFF"] = raw_df.groupby("TRADING CODE")["VOL_DIFF"].transform(lambda x: x.fillna(x.iloc[0]))
+    # First row should have 0 delta, not the full VOLUME
+    raw_df["VOL_DIFF"] = raw_df["VOL_DIFF"].fillna(0)
     # Ensure no negative volume
     raw_df["VOL_DIFF"] = raw_df["VOL_DIFF"].clip(lower=0)
 
