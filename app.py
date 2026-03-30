@@ -167,6 +167,11 @@ st.session_state["selected_stock"] = selected_stock
 if not raw_df.empty and selected_stock != "No Data":
     df_sub = raw_df[raw_df["TRADING CODE"] == selected_stock].copy()
     df_sub = df_sub[df_sub["LTP*"] > 0].copy()
+    df_sub = df_sub.sort_values("captured_at")
+    
+    # ---------------- VOL_DIFF COMPUTATION (ONCE) ----------------
+    df_sub["VOL_DIFF"] = df_sub["VOLUME"].diff().fillna(df_sub["VOLUME"]).clip(lower=0)
+
     total_volume = int(df_sub["VOLUME"].max() - df_sub["VOLUME"].min()) if not df_sub.empty else 0
 else:
     df_sub = pd.DataFrame()
@@ -206,13 +211,8 @@ if selected_stock != "No Data" and not df_sub.empty:
 # ---------------- FULL MARKET PROFILE (ALL PRICES) ----------------
 if selected_stock != "No Data" and not df_sub.empty:
     st.subheader(f"📊 PDB ALL Price — {selected_stock}")
-    full_df = df_sub.copy().sort_values("captured_at")
 
-    # 🔥 FIX: calculate incremental volume correctly
-    full_df["VOL_DIFF"] = full_df["VOLUME"].diff().fillna(full_df["VOLUME"])
-    full_df["VOL_DIFF"] = full_df["VOL_DIFF"].clip(lower=0)  # prevent negative spikes
-
-    full_profile = full_df.groupby("LTP*").agg(
+    full_profile = df_sub.groupby("LTP*").agg(
         Vol_Traded=("VOL_DIFF", "sum"),
         Stay_Count=("captured_at", "count")
     ).reset_index().sort_values("LTP*")
@@ -244,9 +244,6 @@ if selected_stock != "No Data" and not df_sub.empty:
 
 # ---------------- PRICE / VOLUME HISTORY ----------------
 if not df_sub.empty:
-    df_sub["VOL_DIFF"] = df_sub["VOLUME"].diff().fillna(df_sub["VOLUME"])
-    df_sub["VOL_DIFF"] = df_sub["VOL_DIFF"].clip(lower=0)
-
     st.subheader(f"⏱️ Price / Volume History — {selected_stock}")
     fig_hist = go.Figure()
     fig_hist.add_trace(go.Scatter(
