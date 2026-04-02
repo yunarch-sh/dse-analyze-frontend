@@ -2,11 +2,11 @@ import streamlit as st
 import pandas as pd
 from pymongo import MongoClient
 import plotly.graph_objects as go
-from datetime import datetime, time
-import pytz
+from datetime import datetime, time, timezone
+from zoneinfo import ZoneInfo
 
 # ---------------- GLOBAL SETTINGS ----------------
-dhaka_tz = pytz.timezone("Asia/Dhaka")
+dhaka_tz = ZoneInfo("Asia/Dhaka")
 st.set_page_config(page_title="DSE Alpha Tracker", layout="wide")
 
 # ---------------- HEADER ----------------
@@ -72,8 +72,8 @@ t_start, t_end = st.sidebar.slider(
     value=(time(10,0), time(14,30)),
     format="HH:mm"
 )
-dt_start = dhaka_tz.localize(datetime.combine(sel_date, t_start)).astimezone(pytz.UTC)
-dt_end = dhaka_tz.localize(datetime.combine(sel_date, t_end)).astimezone(pytz.UTC)
+dt_start = datetime.combine(sel_date, t_start, tzinfo=dhaka_tz).astimezone(timezone.utc)
+dt_end = datetime.combine(sel_date, t_end, tzinfo=dhaka_tz).astimezone(timezone.utc)
 display_start = dt_start.astimezone(dhaka_tz).strftime("%H:%M")
 display_end = dt_end.astimezone(dhaka_tz).strftime("%H:%M")
 
@@ -90,11 +90,7 @@ def get_filtered_data(start, end):
         df = pd.DataFrame(list(cursor))
         if df.empty:
             return df
-        df["captured_at"] = pd.to_datetime(df["captured_at"], errors='coerce')
-        df["captured_at"] = df["captured_at"].apply(
-            lambda x: x.tz_convert("UTC") if pd.notnull(x) and x.tzinfo 
-            else (x.tz_localize("UTC") if pd.notnull(x) else x)
-        )
+        df["captured_at"] = pd.to_datetime(df["captured_at"], errors='coerce', utc=True)
         df["captured_at"] = df["captured_at"].dt.tz_convert(dhaka_tz)
         return df
     except Exception as e:
@@ -114,11 +110,8 @@ raw_df = get_filtered_data(dt_start, dt_end)
 # ---------------- CALCULATE VOL_DIFF ONCE ----------------
 if not raw_df.empty:
     raw_df = raw_df.sort_values(["TRADING CODE", "captured_at"])
-    # Compute volume differences per stock
     raw_df["VOL_DIFF"] = raw_df.groupby("TRADING CODE")["VOLUME"].diff()
-    # First row should have 0 delta, not the full VOLUME
     raw_df["VOL_DIFF"] = raw_df["VOL_DIFF"].fillna(0)
-    # Ensure no negative volume
     raw_df["VOL_DIFF"] = raw_df["VOL_DIFF"].clip(lower=0)
 
 # ---------------- PRICE STAY ANALYSIS ----------------
