@@ -138,15 +138,18 @@ if st.sidebar.button("🔄 Refresh Data"):
 full_day_df = get_daily_data_with_vol(sel_date)
 
 if not full_day_df.empty:
-    # --- METHOD 1: Clean PDB Logic (Force Volume Up, Backward Diff) ---
+    # Fix negative volume glitches by forcing volume to only go up
     full_day_df["CLEAN_VOLUME"] = full_day_df.groupby("TRADING CODE")["VOLUME"].cummax()
+
+    # --- METHOD 1: Clean PDB Logic (Backward Diff: Current Row - Previous Row) ---
     full_day_df["VOL_DIFF_PDB"] = full_day_df.groupby("TRADING CODE")["CLEAN_VOLUME"].diff()
     full_day_df["VOL_DIFF_PDB"] = full_day_df["VOL_DIFF_PDB"].fillna(0)
 
-    # --- METHOD 2: Excel Logic (Forward Difference: Next Row - Current Row, applied to current) ---
-    full_day_df["VOL_DIFF_EXCEL"] = full_day_df.groupby("TRADING CODE")["VOLUME"].shift(-1) - full_day_df["VOLUME"]
+    # --- METHOD 2: Excel Logic (Forward Diff: Next Row - Current Row) ---
+    # Using CLEAN_VOLUME to prevent glitch recoveries from counting as phantom shares
+    full_day_df["VOL_DIFF_EXCEL"] = full_day_df.groupby("TRADING CODE")["CLEAN_VOLUME"].shift(-1) - full_day_df["CLEAN_VOLUME"]
     
-    # Handle the very last row anomaly mentioned by user (-CumulativeVol at the end)
+    # Handle the very last row anomaly (-CumulativeVol at the end)
     full_day_df.loc[full_day_df["VOL_DIFF_EXCEL"] < 0, "VOL_DIFF_EXCEL"] = 0
     full_day_df["VOL_DIFF_EXCEL"] = full_day_df["VOL_DIFF_EXCEL"].fillna(0)
 
@@ -227,7 +230,7 @@ if "PDB STAY PRICE Profile" in display_options:
         }).reset_index().sort_values("Price") if not stock_summary.empty else pd.DataFrame(columns=["Price","Vol Traded","Stay (Mins)"])
 
         st.subheader(f"📊 PDB STAY PRICE Profile — {selected_stock}")
-        pdb_total = pdb_total = df_sub["VOL_DIFF_PDB"].sum()
+        pdb_total = df_sub["VOL_DIFF_PDB"].sum()
         profile_data["Vol % of Total"] = (profile_data["Vol Traded"]/pdb_total*100) if pdb_total>0 else 0
 
         fig_p = go.Figure()
