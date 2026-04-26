@@ -5,21 +5,21 @@ import plotly.graph_objects as go
 from datetime import datetime, time, timezone
 from zoneinfo import ZoneInfo
 
-# ---------------- SETTINGS ----------------
+# ---------------- GLOBAL SETTINGS ----------------
 dhaka_tz = ZoneInfo("Asia/Dhaka")
 st.set_page_config(page_title="DSE Alpha Tracker", layout="wide")
 
 # ---------------- HEADER ----------------
 def render_header():
-    now = datetime.now(dhaka_tz)
+    now_dhaka = datetime.now(dhaka_tz)
     st.markdown(f"""
     <div style="display:flex;justify-content:space-between;align-items:center;font-family:sans-serif;">
         <div>
-            <h1 style="margin:0;color:#4A90E2;">DSE ALPHA TRACKER</h1>
-            <p style="margin:0;color:#E74C3C;">Volume Profile System</p>
+            <h1 style="margin:0; color:#4A90E2;">DSE ALPHA TRACKER</h1>
+            <p style="margin:0; color:#E74C3C;">POC • PDB</p>
         </div>
-        <div style="text-align:right;color:#27AE60;">
-            {now.strftime('%d %b %Y | %H:%M:%S')}
+        <div style="text-align:right; font-size:14px; color:#27AE60;">
+            {now_dhaka.strftime('%d %b %Y | %H:%M:%S')}
         </div>
     </div>
     <hr>
@@ -27,181 +27,181 @@ def render_header():
 
 render_header()
 
-# ---------------- AUTH ----------------
+# ---------------- AUTH SYSTEM ----------------
 def check_password():
-    if "auth" not in st.session_state:
-        st.session_state["auth"] = False
-
-    if st.session_state["auth"]:
+    if "password_correct" not in st.session_state:
+        st.session_state["password_correct"] = False
+    if st.session_state["password_correct"]:
         return True
 
     with st.form("login"):
-        st.subheader("🔐 Login")
-        u = st.text_input("Username")
-        p = st.text_input("Password", type="password")
-        ok = st.form_submit_button("Login")
-
-        if ok:
-            if u == st.secrets["LOGIN"]["LOGIN_USER"] and p == st.secrets["LOGIN"]["LOGIN_PASS"]:
-                st.session_state["auth"] = True
+        st.subheader("🔐 Access Control")
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+        submitted = st.form_submit_button("Login")
+        if submitted:
+            if (username == st.secrets["LOGIN"]["LOGIN_USER"] 
+                and password == st.secrets["LOGIN"]["LOGIN_PASS"]):
+                st.session_state["password_correct"] = True
                 st.rerun()
             else:
                 st.error("Invalid credentials")
-
     return False
 
 if not check_password():
     st.stop()
 
-# ---------------- DB ----------------
+# ---------------- DATABASE CONNECTION ----------------
 @st.cache_resource
-def db_conn():
-    client = MongoClient(st.secrets["MONGO"]["MONGO_URI"])
-    return client["DSE_Market_Data"]["price_logs"]
+def init_connection():
+    try:
+        client = MongoClient(st.secrets["MONGO"]["MONGO_URI"])
+        db = client["DSE_Market_Data"]
+        collection = db["price_logs"]
+        return collection
+    except Exception as e:
+        st.error(f"MongoDB Connection Failed: {e}")
+        st.stop()
 
-collection = db_conn()
+collection = init_connection()
 
 # ---------------- SIDEBAR ----------------
-st.sidebar.header("Filters")
-
-sel_date = st.sidebar.date_input("Date", datetime.now(dhaka_tz))
+st.sidebar.header("⏳ Filter Data")
+sel_date = st.sidebar.date_input("Select Date", datetime.now(dhaka_tz))
 t_start, t_end = st.sidebar.slider(
     "Time Range",
-    value=(time(10, 0), time(14, 30)),
+    value=(time(10,0), time(14,30)),
     format="HH:mm"
 )
 
-# ---------------- LOAD DATA ----------------
-@st.cache_data(ttl=60)
-def load_data(date):
-    start = datetime.combine(date, time(0, 0), tzinfo=dhaka_tz).astimezone(timezone.utc)
-    end = datetime.combine(date, time(23, 59, 59), tzinfo=dhaka_tz).astimezone(timezone.utc)
+display_options = st.sidebar.multiselect(
+    "Select Views",
+    [
+        "Ranked Price Stays Table",
+        "PDB STAY PRICE Profile",
+        "PDB ALL Price",
+        "Excel Approach Profile",
+        "Price / Volume History"
+    ],
+    default=[
+        "PDB ALL Price",
+        "Excel Approach Profile",
+        "Price / Volume History"
+    ]
+)
 
-    df = pd.DataFrame(list(collection.find({
+dt_start = datetime.combine(sel_date, t_start, tzinfo=dhaka_tz).astimezone(timezone.utc)
+dt_end = datetime.combine(sel_date, t_end, tzinfo=dhaka_tz).astimezone(timezone.utc)
+
+# ---------------- DATA ----------------
+@st.cache_data(ttl=60)
+def get_data(date):
+    start = datetime.combine(date, time(0,0), tzinfo=dhaka_tz).astimezone(timezone.utc)
+    end = datetime.combine(date, time(23,59,59), tzinfo=dhaka_tz).astimezone(timezone.utc)
+
+    cursor = collection.find({
         "captured_at": {"$gte": start, "$lte": end}
-    }).sort("captured_at", 1)))
+    }).sort("captured_at", 1)
+
+    df = pd.DataFrame(list(cursor))
 
     if df.empty:
         return df
 
     df["captured_at"] = pd.to_datetime(df["captured_at"], utc=True).dt.tz_convert(dhaka_tz)
-    df = df.sort_values(["TRADING CODE", "captured_at"])
-    return df
+    return df.sort_values(["TRADING CODE", "captured_at"])
 
-full_df = load_data(sel_date)
+df = get_data(sel_date)
 
-# ---------------- VOLUME FIX ----------------
-if not full_df.empty:
-
-    full_df["IND_VOL"] = (
-        full_df.groupby("TRADING CODE")["VOLUME"].diff()
-    )
-
-    full_df["IND_VOL"] = full_df["IND_VOL"].fillna(full_df["VOLUME"])
-    full_df["IND_VOL"] = full_df["IND_VOL"].clip(lower=0)
-
-    start_t = datetime.combine(sel_date, t_start, tzinfo=dhaka_tz)
-    end_t = datetime.combine(sel_date, t_end, tzinfo=dhaka_tz)
-
-    df = full_df[
-        (full_df["captured_at"] >= start_t) &
-        (full_df["captured_at"] <= end_t)
-    ].copy()
-
+if not df.empty:
+    df["VOL_DIFF_PDB"] = df.groupby("TRADING CODE")["VOLUME"].diff().fillna(0)
+    df["VOL_DIFF_EXCEL"] = df.groupby("TRADING CODE")["VOLUME"].shift(-1) - df["VOLUME"]
+    df["VOL_DIFF_EXCEL"] = df["VOL_DIFF_EXCEL"].fillna(0)
 else:
     df = pd.DataFrame()
 
-# ---------------- STOCK ----------------
-stocks = sorted(df["TRADING CODE"].unique()) if not df.empty else ["No Data"]
-stock = st.selectbox("Select Stock", stocks)
+mask = (df["captured_at"] >= dt_start.astimezone(dhaka_tz)) & \
+       (df["captured_at"] <= dt_end.astimezone(dhaka_tz))
 
-df_sub = df[df["TRADING CODE"] == stock].copy() if stock != "No Data" else pd.DataFrame()
+raw_df = df.loc[mask].copy()
 
-# ---------------- VOLUME PROFILE ----------------
-if not df_sub.empty:
+# ---------------- STOCK SELECT ----------------
+stocks = raw_df["TRADING CODE"].unique() if not raw_df.empty else ["No Data"]
 
-    st.subheader(f"📊 Volume Profile — {stock}")
+selected_stock = st.selectbox("Stock", stocks)
 
-    vp = df_sub.groupby("LTP*").agg(
-        Volume=("IND_VOL", "sum")
-    ).reset_index().sort_values("LTP*")
+df_sub = raw_df[raw_df["TRADING CODE"] == selected_stock].copy() if selected_stock != "No Data" else pd.DataFrame()
 
-    total_vol = vp["Volume"].sum()
+# ---------------- PRICE / VOLUME HISTORY ----------------
+if "Price / Volume History" in display_options:
+    if not df_sub.empty:
+        st.subheader("Price / Volume History")
 
-    # POC
-    poc = vp.loc[vp["Volume"].idxmax(), "LTP*"]
+        fig = go.Figure()
 
-    # VWAP
-    vwap = (df_sub["LTP*"] * df_sub["IND_VOL"]).sum() / df_sub["IND_VOL"].sum()
+        fig.add_trace(go.Scatter(
+            x=df_sub["captured_at"],
+            y=df_sub["LTP*"],
+            name="Price"
+        ))
 
-    fig = go.Figure()
+        fig.add_trace(go.Bar(
+            x=df_sub["captured_at"],
+            y=df_sub["VOL_DIFF_PDB"],
+            name="Volume"
+        ))
 
-    fig.add_trace(go.Bar(
-        y=vp["LTP*"],
-        x=vp["Volume"],
-        orientation="h",
-        name="Volume"
-    ))
+        st.plotly_chart(fig, use_container_width=True)
 
-    # ✅ FIXED HERE (no add_vline)
-    fig.add_hline(
-        y=poc,
-        line_dash="dash",
-        line_color="red",
-        annotation_text="POC",
-        annotation_position="right"
-    )
+# ---------------- 🔥 BONUS GRAPH (ADDED ONLY HERE) ----------------
+if "Price / Volume History" in display_options:
+    if not df_sub.empty:
 
-    fig.add_hline(
-        y=vwap,
-        line_dash="dot",
-        line_color="yellow",
-        annotation_text="VWAP",
-        annotation_position="right"
-    )
+        st.subheader(f"📊 Price vs Volume + % + Cumulative — {selected_stock}")
 
-    fig.update_layout(
-        template="plotly_dark",
-        xaxis_title="Volume",
-        yaxis_title="Price",
-        height=600
-    )
+        temp = df_sub.sort_values("captured_at").copy()
 
-    st.plotly_chart(fig, use_container_width=True)
+        temp["VOL"] = temp["VOLUME"].diff().fillna(0)
+        temp.loc[temp["VOL"] < 0, "VOL"] = 0
 
-    st.success(f"""
-    POC: {poc}  
-    VWAP: {round(vwap, 4)}  
-    Total Volume: {total_vol:,.0f}
-    """)
+        price_vol = temp.groupby("LTP*").agg(
+            Volume=("VOL", "sum")
+        ).reset_index().sort_values("LTP*")
 
-# ---------------- PRICE HISTORY ----------------
-if not df_sub.empty:
+        total_vol = price_vol["Volume"].sum()
 
-    st.subheader("⏱ Price & Volume Flow")
+        price_vol["Percent"] = (price_vol["Volume"] / total_vol * 100) if total_vol > 0 else 0
+        price_vol["Cumulative"] = price_vol["Volume"].cumsum()
 
-    fig2 = go.Figure()
+        fig2 = go.Figure()
 
-    fig2.add_trace(go.Scatter(
-        x=df_sub["captured_at"],
-        y=df_sub["LTP*"],
-        name="Price"
-    ))
+        fig2.add_trace(go.Bar(
+            x=price_vol["LTP*"],
+            y=price_vol["Volume"],
+            name="Volume per Price",
+            customdata=price_vol["Percent"],
+            hovertemplate="Price:%{x}<br>Vol:%{y}<br>%:%{customdata:.2f}"
+        ))
 
-    fig2.add_trace(go.Bar(
-        x=df_sub["captured_at"],
-        y=df_sub["IND_VOL"],
-        name="Volume"
-    ))
+        fig2.add_trace(go.Scatter(
+            x=price_vol["LTP*"],
+            y=price_vol["Cumulative"],
+            mode="lines+markers",
+            name="Cumulative Volume"
+        ))
 
-    fig2.update_layout(template="plotly_dark", height=400)
+        fig2.add_hline(
+            y=total_vol,
+            line_dash="dash",
+            line_color="red"
+        )
 
-    st.plotly_chart(fig2, use_container_width=True)
+        fig2.update_layout(
+            template="plotly_dark",
+            xaxis_title="Price",
+            yaxis_title="Volume"
+        )
 
-# ---------------- FINAL CHECK ----------------
-if not df_sub.empty:
-    st.info(f"""
-    ✔ Volume Reconciliation Check:
-    Sum IND_VOL = {df_sub['IND_VOL'].sum():,.0f}
-    (Should match session cumulative delta)
-    """)
+        st.plotly_chart(fig2, use_container_width=True)
+
+        st.caption(f"Total Volume: {int(total_vol)} (must match cumulative end)")
