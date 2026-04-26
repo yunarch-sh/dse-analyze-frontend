@@ -5,21 +5,21 @@ import plotly.graph_objects as go
 from datetime import datetime, time, timezone
 from zoneinfo import ZoneInfo
 
-# ---------------- GLOBAL SETTINGS ----------------
+# ---------------- SETTINGS ----------------
 dhaka_tz = ZoneInfo("Asia/Dhaka")
 st.set_page_config(page_title="DSE Alpha Tracker", layout="wide")
 
 # ---------------- HEADER ----------------
 def render_header():
-    now_dhaka = datetime.now(dhaka_tz)
+    now = datetime.now(dhaka_tz)
     st.markdown(f"""
     <div style="display:flex;justify-content:space-between;align-items:center;font-family:sans-serif;">
         <div>
-            <h1 style="margin:0; color:#4A90E2;">DSE ALPHA TRACKER</h1>
-            <p style="margin:0; color:#E74C3C;">POC • PDB</p>
+            <h1 style="margin:0;color:#4A90E2;">DSE ALPHA TRACKER</h1>
+            <p style="margin:0;color:#E74C3C;">Volume Profile System</p>
         </div>
-        <div style="text-align:right; font-size:14px; color:#27AE60;">
-            {now_dhaka.strftime('%d %b %Y | %H:%M:%S')}
+        <div style="text-align:right;color:#27AE60;">
+            {now.strftime('%d %b %Y | %H:%M:%S')}
         </div>
     </div>
     <hr>
@@ -27,55 +27,55 @@ def render_header():
 
 render_header()
 
-# ---------------- AUTH SYSTEM ----------------
+# ---------------- AUTH ----------------
 def check_password():
-    if "password_correct" not in st.session_state:
-        st.session_state["password_correct"] = False
+    if "auth" not in st.session_state:
+        st.session_state["auth"] = False
 
-    if st.session_state["password_correct"]:
+    if st.session_state["auth"]:
         return True
 
     with st.form("login"):
-        st.subheader("🔐 Access Control")
-        username = st.text_input("Username")
-        password = st.text_input("Password", type="password")
-        submitted = st.form_submit_button("Login")
+        st.subheader("🔐 Login")
+        u = st.text_input("Username")
+        p = st.text_input("Password", type="password")
+        ok = st.form_submit_button("Login")
 
-        if submitted:
-            if (username == st.secrets["LOGIN"]["LOGIN_USER"]
-                and password == st.secrets["LOGIN"]["LOGIN_PASS"]):
-                st.session_state["password_correct"] = True
+        if ok:
+            if u == st.secrets["LOGIN"]["LOGIN_USER"] and p == st.secrets["LOGIN"]["LOGIN_PASS"]:
+                st.session_state["auth"] = True
                 st.rerun()
             else:
                 st.error("Invalid credentials")
+
     return False
 
 if not check_password():
     st.stop()
 
-# ---------------- DB CONNECTION ----------------
+# ---------------- DB ----------------
 @st.cache_resource
-def init_connection():
+def db_conn():
     client = MongoClient(st.secrets["MONGO"]["MONGO_URI"])
-    db = client["DSE_Market_Data"]
-    return db["price_logs"]
+    return client["DSE_Market_Data"]["price_logs"]
 
-collection = init_connection()
+collection = db_conn()
 
-# ---------------- FILTERS ----------------
-st.sidebar.header("⏳ Filter Data")
-sel_date = st.sidebar.date_input("Select Date", datetime.now(dhaka_tz))
+# ---------------- SIDEBAR ----------------
+st.sidebar.header("Filters")
+
+sel_date = st.sidebar.date_input("Date", datetime.now(dhaka_tz))
 t_start, t_end = st.sidebar.slider(
     "Time Range",
-    value=(time(10,0), time(14,30)),
+    value=(time(10, 0), time(14, 30)),
     format="HH:mm"
 )
 
-# ---------------- FETCH DATA ----------------
+# ---------------- LOAD DATA ----------------
 @st.cache_data(ttl=60)
 def load_data(date):
-    start = datetime.combine(date, time(0,0), tzinfo=dhaka_tz).astimezone(timezone.utc)
-    end = datetime.combine(date, time(23,59,59), tzinfo=dhaka_tz).astimezone(timezone.utc)
+    start = datetime.combine(date, time(0, 0), tzinfo=dhaka_tz).astimezone(timezone.utc)
+    end = datetime.combine(date, time(23, 59, 59), tzinfo=dhaka_tz).astimezone(timezone.utc)
 
     df = pd.DataFrame(list(collection.find({
         "captured_at": {"$gte": start, "$lte": end}
@@ -88,44 +88,39 @@ def load_data(date):
     df = df.sort_values(["TRADING CODE", "captured_at"])
     return df
 
-full_day_df = load_data(sel_date)
+full_df = load_data(sel_date)
 
-# ---------------- FIXED VOLUME LOGIC ----------------
-if not full_day_df.empty:
+# ---------------- VOLUME FIX ----------------
+if not full_df.empty:
 
-    # ✔ Correct Individual Volume (NEVER use forward diff)
-    full_day_df["IND_VOL"] = (
-        full_day_df.groupby("TRADING CODE")["VOLUME"].diff()
+    full_df["IND_VOL"] = (
+        full_df.groupby("TRADING CODE")["VOLUME"].diff()
     )
 
-    # First row fix (true baseline)
-    full_day_df["IND_VOL"] = full_day_df["IND_VOL"].fillna(full_day_df["VOLUME"])
+    full_df["IND_VOL"] = full_df["IND_VOL"].fillna(full_df["VOLUME"])
+    full_df["IND_VOL"] = full_df["IND_VOL"].clip(lower=0)
 
-    # Remove bad negative spikes (data correction)
-    full_day_df["IND_VOL"] = full_day_df["IND_VOL"].clip(lower=0)
-
-    # Time filter
     start_t = datetime.combine(sel_date, t_start, tzinfo=dhaka_tz)
     end_t = datetime.combine(sel_date, t_end, tzinfo=dhaka_tz)
 
-    raw_df = full_day_df[
-        (full_day_df["captured_at"] >= start_t) &
-        (full_day_df["captured_at"] <= end_t)
+    df = full_df[
+        (full_df["captured_at"] >= start_t) &
+        (full_df["captured_at"] <= end_t)
     ].copy()
+
 else:
-    raw_df = pd.DataFrame()
+    df = pd.DataFrame()
 
-# ---------------- STOCK SELECT ----------------
-stock_list = sorted(raw_df["TRADING CODE"].unique()) if not raw_df.empty else ["No Data"]
+# ---------------- STOCK ----------------
+stocks = sorted(df["TRADING CODE"].unique()) if not df.empty else ["No Data"]
+stock = st.selectbox("Select Stock", stocks)
 
-selected_stock = st.selectbox("Select Stock", stock_list)
-
-df_sub = raw_df[raw_df["TRADING CODE"] == selected_stock].copy() if selected_stock != "No Data" else pd.DataFrame()
+df_sub = df[df["TRADING CODE"] == stock].copy() if stock != "No Data" else pd.DataFrame()
 
 # ---------------- VOLUME PROFILE ----------------
 if not df_sub.empty:
 
-    st.subheader(f"📊 Volume Profile — {selected_stock}")
+    st.subheader(f"📊 Volume Profile — {stock}")
 
     vp = df_sub.groupby("LTP*").agg(
         Volume=("IND_VOL", "sum")
@@ -148,8 +143,22 @@ if not df_sub.empty:
         name="Volume"
     ))
 
-    fig.add_vline(y=poc, line_dash="dash", line_color="red")
-    fig.add_vline(y=vwap, line_dash="dot", line_color="yellow")
+    # ✅ FIXED HERE (no add_vline)
+    fig.add_hline(
+        y=poc,
+        line_dash="dash",
+        line_color="red",
+        annotation_text="POC",
+        annotation_position="right"
+    )
+
+    fig.add_hline(
+        y=vwap,
+        line_dash="dot",
+        line_color="yellow",
+        annotation_text="VWAP",
+        annotation_position="right"
+    )
 
     fig.update_layout(
         template="plotly_dark",
@@ -169,7 +178,7 @@ if not df_sub.empty:
 # ---------------- PRICE HISTORY ----------------
 if not df_sub.empty:
 
-    st.subheader("⏱ Price / Volume History")
+    st.subheader("⏱ Price & Volume Flow")
 
     fig2 = go.Figure()
 
@@ -189,5 +198,10 @@ if not df_sub.empty:
 
     st.plotly_chart(fig2, use_container_width=True)
 
-# ---------------- FOOTER ----------------
-st.caption("✔ Volume correctly reconstructed from cumulative data (no double counting, no forward diff bias)")
+# ---------------- FINAL CHECK ----------------
+if not df_sub.empty:
+    st.info(f"""
+    ✔ Volume Reconciliation Check:
+    Sum IND_VOL = {df_sub['IND_VOL'].sum():,.0f}
+    (Should match session cumulative delta)
+    """)
