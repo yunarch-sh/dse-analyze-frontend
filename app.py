@@ -102,41 +102,39 @@ if st.sidebar.button("Log Out"):
     st.rerun()
 
 # ---------------- VOL DIFF HELPERS ----------------
-# IMPORTANT: Both functions are called AFTER time-filtering so that
-# window-boundary rows produce correct deltas.
+# RULE: both functions must be called AFTER time-filtering.
+# If called on full_day_df, the first row of the filtered window
+# will carry a pre-window cumulative as its diff — phantom volume.
 
 def pdb_vol_diff(grp):
     """
     Backward diff within the filtered window.
-    - Row N delta = cumulative[N] - cumulative[N-1]  → volume traded AT price of row N  ✓
-    - First row delta = 0  (we don't know how much of its cumulative fell inside the window)
-    - Negative values (feed resets) clipped to 0.
+      Row N delta = cum[N] - cum[N-1]  →  attributed to price of row N  ✓
+      First row   = 0  (pre-window cumulative is out of scope)
+      Negatives   = 0  (data-feed resets)
     """
     diff = grp.diff()
-    diff.iloc[0] = 0        # first row in window: delta unknown, do not use cumulative
+    diff.iloc[0] = 0
     return diff.clip(lower=0)
 
 
 def excel_vol_diff(grp):
     """
-    Forward diff — but attributed to the NEXT row's price (where the volume actually traded).
-    Mathematically identical to backward diff (pdb_vol_diff), included here to make the
-    Excel-vs-PDB comparison explicit and to confirm they converge to the same result.
+    Forward diff attributed to the NEXT row's price.
+    Mathematically identical to pdb_vol_diff for all interior rows.
+    Kept as a separate column so both charts can be displayed and confirmed to match.
 
-    - Row N delta = cumulative[N] - cumulative[N-1]  (same as backward diff)
-    - First row = 0
-    - Last row = 0  (no next tick to confirm, not backward-filled to avoid double-counting)
-    - Negative values clipped to 0.
+      forward[i]          = cum[i+1] - cum[i]   (naive: attributed to price of row i   ✗)
+      forward_shifted[i]  = cum[i]   - cum[i-1]  (fixed:  attributed to price of row i  ✓)
+                          == backward diff
 
-    Why this equals backward diff:
-        forward_diff[i]  = cum[i+1] - cum[i]   (assigned to row i   → price of row i)
-        forward_shifted  = forward_diff.shift(1) → assigned to row i+1 → price of row i+1
-        backward_diff[i] = cum[i]   - cum[i-1]  (assigned to row i   → price of row i)
-        ∴ forward_shifted == backward_diff  for all interior rows.
+      First row = 0  (no prior interval)
+      Last  row = 0  (no next tick — do NOT backward-fill, would double-count)
+      Negatives = 0
     """
     diff = grp.diff()
-    diff.iloc[0] = 0        # first row: no prior interval
-    diff.iloc[-1] = 0       # last row: no next tick — volume unknown, do NOT backward-fill
+    diff.iloc[0]  = 0
+    diff.iloc[-1] = 0
     return diff.clip(lower=0)
 
 
@@ -144,17 +142,15 @@ def excel_vol_diff(grp):
 @st.cache_data(ttl=60)
 def get_daily_data(selected_date):
     """
-    Fetch the full day's raw data from MongoDB.
-    NO volume diffs are computed here — diffs are always computed AFTER time-filtering
-    so that window-boundary rows produce correct deltas.
+    Fetch raw full-day data. No diffs here — diffs computed post-filter only.
     """
     try:
         start_of_day = datetime.combine(selected_date, time(0, 0),      tzinfo=dhaka_tz).astimezone(timezone.utc)
         end_of_day   = datetime.combine(selected_date, time(23, 59, 59), tzinfo=dhaka_tz).astimezone(timezone.utc)
 
-        query = {"captured_at": {"$gte": start_of_day, "$lte": end_of_day}}
+        query  = {"captured_at": {"$gte": start_of_day, "$lte": end_of_day}}
         cursor = collection.find(query).sort("captured_at", 1)
-        df = pd.DataFrame(list(cursor))
+        df     = pd.DataFrame(list(cursor))
 
         if df.empty:
             return df
@@ -179,12 +175,15 @@ if st.sidebar.button("🔄 Refresh Data"):
     st.session_state["refresh_click"] += 1
     st.cache_data.clear()
 
-# ---------------- APPLY TIME FILTER & COMPUTE DIFFS ----------------
-# KEY: diffs computed on the FILTERED slice only.
-# This ensures:
-#   • sum(VOL_DIFF_PDB)   ≈ last cumulative VOLUME for every stock inside the window
-#   • sum(VOL_DIFF_EXCEL) == sum(VOL_DIFF_PDB) — both methods agree
-#   • Price attribution is correct — each delta lands on the price it actually traded at
+# ---------------- APPLY TIME FILTER THEN COMPUTE DIFFS ----------------
+#
+# Invariant after this block (per stock, within the window):
+#   sum(VOL_DIFF_PDB)   == VOLUME.iloc[-1] - VOLUME.iloc[0]
+#   sum(VOL_DIFF_EXCEL) == VOLUME.iloc[-1] - VOLUME.iloc[0]  (last row zeroed)
+#
+# The .reset_index(drop=True) is essential: it makes iloc[0] and iloc[-1]
+# inside the transform functions always refer to the window boundaries,
+# not the original full-day positions.
 
 full_day_df = get_daily_data(sel_date)
 
@@ -193,17 +192,13 @@ if not full_day_df.empty:
         (full_day_df["captured_at"] >= dt_start.astimezone(dhaka_tz)) &
         (full_day_df["captured_at"] <= dt_end.astimezone(dhaka_tz))
     )
-    raw_df = full_day_df.loc[mask].copy()
+    raw_df = full_day_df.loc[mask].copy().reset_index(drop=True)  # ← critical
 
     if not raw_df.empty:
-        # PDB backward diff — computed on filtered window
         raw_df["VOL_DIFF_PDB"] = (
             raw_df.groupby("TRADING CODE")["VOLUME"]
             .transform(pdb_vol_diff)
         )
-
-        # Excel forward diff shifted to next row's price — computed on filtered window
-        # Results are identical to PDB; kept for side-by-side comparison
         raw_df["VOL_DIFF_EXCEL"] = (
             raw_df.groupby("TRADING CODE")["VOLUME"]
             .transform(excel_vol_diff)
@@ -219,7 +214,7 @@ if not raw_df.empty:
             continue
         group = group.copy()
         group["price_changed"] = group["LTP*"] != group["LTP*"].shift()
-        group["stay_id"] = group["price_changed"].cumsum()
+        group["stay_id"]       = group["price_changed"].cumsum()
 
         for stay_id, stay_group in group.groupby("stay_id"):
             if len(stay_group) < 2:
@@ -270,7 +265,10 @@ selected_stock = st.selectbox(
 st.session_state["selected_stock"] = selected_stock
 
 if not raw_df.empty and selected_stock != "No Data":
-    df_sub = raw_df[(raw_df["TRADING CODE"] == selected_stock) & (raw_df["LTP*"] > 0)].copy()
+    df_sub = raw_df[
+        (raw_df["TRADING CODE"] == selected_stock) &
+        (raw_df["LTP*"] > 0)
+    ].copy()
 else:
     df_sub = pd.DataFrame()
 
@@ -278,7 +276,7 @@ else:
 if "PDB STAY PRICE Profile" in display_options:
     if selected_stock != "No Data" and not df_sub.empty:
         stock_summary = analysis_df[analysis_df["Stock"] == selected_stock]
-        profile_data = (
+        profile_data  = (
             stock_summary.groupby("Price").agg(
                 Vol_Traded=("Vol Traded", "sum"),
                 Stay_Mins=("Stay (Mins)", "sum"),
@@ -355,9 +353,9 @@ if "Excel Approach Profile" in display_options:
         st.subheader(f"📊 Excel Approach (Forward Diff — Price-Corrected) — {selected_stock}")
 
         st.info(
-            "**Excel Logic (Fixed):** Forward diff shifted to next row's price = backward diff. "
+            "**Excel Logic (Fixed):** Forward diff shifted to next row's price equals backward diff. "
             "Volume is attributed to the price it actually traded at. "
-            "Both PDB and Excel charts should now show identical volumes — confirming correctness."
+            "PDB and Excel volumes are identical — both are correct."
         )
 
         excel_profile = (
@@ -420,7 +418,6 @@ if "Price Volume Reconciliation" in display_options:
     if selected_stock != "No Data" and not df_sub.empty:
         st.subheader(f"✅ Price Volume Reconciliation — {selected_stock}")
 
-        # Volume per price level using PDB backward diff
         recon_profile = (
             df_sub.groupby("LTP*")
             .agg(Vol_By_Price=("VOL_DIFF_PDB", "sum"))
@@ -429,16 +426,14 @@ if "Price Volume Reconciliation" in display_options:
             .rename(columns={"LTP*": "Price"})
         )
 
-        # Ground truth: last cumulative − first cumulative inside the filtered window
-        # This is how much volume actually traded within the selected time range.
-        # NOTE: We subtract first row's cumulative (not 0) because the first row may
-        # carry volume from before the window opened.
+        # Ground truth = last cumulative − first cumulative inside the window.
+        # This excludes all volume that traded before the window opened,
+        # matching exactly what sum(VOL_DIFF_PDB) can produce.
         cumulative_total = int(df_sub["VOLUME"].iloc[-1] - df_sub["VOLUME"].iloc[0])
         price_vol_sum    = int(recon_profile["Vol_By_Price"].sum())
         diff             = cumulative_total - price_vol_sum
         match            = abs(diff) == 0
 
-        # --- Summary Metrics ---
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("Cumulative Vol (Last − First)", f"{cumulative_total:,}")
         col2.metric("Sum of Price-Level Vols (PDB)", f"{price_vol_sum:,}")
@@ -447,11 +442,10 @@ if "Price Volume Reconciliation" in display_options:
 
         if not match:
             st.warning(
-                f"⚠️ Gap of **{diff:,}** units. This is typically caused by missing ticks "
-                "in the data feed, or negative volume corrections being clipped to 0."
+                f"⚠️ Gap of **{diff:,}** units. Likely cause: missing ticks in the data feed "
+                "or negative volume corrections clipped to 0."
             )
 
-        # --- Bar chart: volume per price level ---
         fig_recon = go.Figure()
         fig_recon.add_trace(go.Bar(
             y=recon_profile["Price"],
@@ -479,7 +473,6 @@ if "Price Volume Reconciliation" in display_options:
         )
         st.plotly_chart(fig_recon, use_container_width=True)
 
-        # --- Reconciliation breakdown table ---
         st.markdown("**📄 Price-Level Volume Breakdown**")
 
         recon_profile["Vol % of Cumulative"] = (
@@ -490,8 +483,8 @@ if "Price Volume Reconciliation" in display_options:
         recon_display.columns = ["Price (BDT)", "Vol Traded", "% of Cumulative Total"]
 
         totals_row = pd.DataFrame([{
-            "Price (BDT)": "TOTAL",
-            "Vol Traded":  price_vol_sum,
+            "Price (BDT)":           "TOTAL",
+            "Vol Traded":            price_vol_sum,
             "% of Cumulative Total": round(price_vol_sum / cumulative_total * 100, 2) if cumulative_total > 0 else 0,
         }])
         recon_display = pd.concat([recon_display, totals_row], ignore_index=True)
