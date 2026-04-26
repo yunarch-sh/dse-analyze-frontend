@@ -98,17 +98,30 @@ if st.sidebar.button("Log Out"):
     st.session_state["password_correct"] = False
     st.rerun()
 
-# ---------------- DATA FETCH ----------------
+# ---------------- DATA FETCH & VOL CALCULATION ----------------
 @st.cache_data(ttl=60)
-def get_filtered_data(start, end):
+def get_daily_data_with_vol(selected_date):
     try:
-        query = {"captured_at": {"$gte": start, "$lte": end}}
+        # 1. Fetch the ENTIRE day's data, regardless of the time slider
+        start_of_day = datetime.combine(selected_date, time(0,0), tzinfo=dhaka_tz).astimezone(timezone.utc)
+        end_of_day = datetime.combine(selected_date, time(23,59,59), tzinfo=dhaka_tz).astimezone(timezone.utc)
+        
+        query = {"captured_at": {"$gte": start_of_day, "$lte": end_of_day}}
         cursor = collection.find(query).sort("captured_at", 1)
         df = pd.DataFrame(list(cursor))
+        
         if df.empty:
             return df
+            
         df["captured_at"] = pd.to_datetime(df["captured_at"], errors='coerce', utc=True)
         df["captured_at"] = df["captured_at"].dt.tz_convert(dhaka_tz)
+        
+        # 2. Calculate VOL_DIFF on the full day's data BEFORE time filtering
+        df = df.sort_values(["TRADING CODE", "captured_at"])
+        df["VOL_DIFF"] = df.groupby("TRADING CODE")["VOLUME"].diff()
+        df["VOL_DIFF"] = df["VOL_DIFF"].fillna(0)
+        df["VOL_DIFF"] = df["VOL_DIFF"].clip(lower=0)
+        
         return df
     except Exception as e:
         st.error(f"Data Fetch Error: {e}")
@@ -122,14 +135,16 @@ if st.sidebar.button("🔄 Refresh Data"):
     st.session_state["refresh_click"] += 1
     st.cache_data.clear()
 
-raw_df = get_filtered_data(dt_start, dt_end)
+# ---------------- APPLY FILTERS ----------------
+full_day_df = get_daily_data_with_vol(sel_date)
 
-# ---------------- CALCULATE VOL_DIFF ONCE ----------------
-if not raw_df.empty:
-    raw_df = raw_df.sort_values(["TRADING CODE", "captured_at"])
-    raw_df["VOL_DIFF"] = raw_df.groupby("TRADING CODE")["VOLUME"].diff()
-    raw_df["VOL_DIFF"] = raw_df["VOL_DIFF"].fillna(0)
-    raw_df["VOL_DIFF"] = raw_df["VOL_DIFF"].clip(lower=0)
+# 3. Filter down to the specific time range selected in the UI
+if not full_day_df.empty:
+    mask = (full_day_df["captured_at"] >= dt_start.astimezone(dhaka_tz)) & \
+           (full_day_df["captured_at"] <= dt_end.astimezone(dhaka_tz))
+    raw_df = full_day_df.loc[mask].copy()
+else:
+    raw_df = pd.DataFrame()
 
 # ---------------- PRICE STAY ANALYSIS ----------------
 summary = []
