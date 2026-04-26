@@ -118,7 +118,7 @@ def get_daily_data_with_vol(selected_date):
         df["captured_at"] = pd.to_datetime(df["captured_at"], errors='coerce', utc=True)
         df["captured_at"] = df["captured_at"].dt.tz_convert(dhaka_tz)
         
-        # Ensure correct chronological order
+        # Ensure correct chronological order before any math
         df = df.sort_values(["TRADING CODE", "captured_at"])
         
         return df
@@ -138,19 +138,14 @@ if st.sidebar.button("🔄 Refresh Data"):
 full_day_df = get_daily_data_with_vol(sel_date)
 
 if not full_day_df.empty:
-    # Fix negative volume glitches by forcing volume to only go up
-    full_day_df["CLEAN_VOLUME"] = full_day_df.groupby("TRADING CODE")["VOLUME"].cummax()
-
-    # --- METHOD 1: Clean PDB Logic (Backward Diff: Current Row - Previous Row) ---
-    full_day_df["VOL_DIFF_PDB"] = full_day_df.groupby("TRADING CODE")["CLEAN_VOLUME"].diff()
+    # --- METHOD 1: Clean PDB Logic (Raw Backward Diff) ---
+    # Current Row Volume - Previous Row Volume
+    full_day_df["VOL_DIFF_PDB"] = full_day_df.groupby("TRADING CODE")["VOLUME"].diff()
     full_day_df["VOL_DIFF_PDB"] = full_day_df["VOL_DIFF_PDB"].fillna(0)
 
-    # --- METHOD 2: Excel Logic (Forward Diff: Next Row - Current Row) ---
-    # Using CLEAN_VOLUME to prevent glitch recoveries from counting as phantom shares
-    full_day_df["VOL_DIFF_EXCEL"] = full_day_df.groupby("TRADING CODE")["CLEAN_VOLUME"].shift(-1) - full_day_df["CLEAN_VOLUME"]
-    
-    # Handle the very last row anomaly (-CumulativeVol at the end)
-    full_day_df.loc[full_day_df["VOL_DIFF_EXCEL"] < 0, "VOL_DIFF_EXCEL"] = 0
+    # --- METHOD 2: Excel Logic (Raw Forward Diff) ---
+    # Next Row Volume - Current Row Volume
+    full_day_df["VOL_DIFF_EXCEL"] = full_day_df.groupby("TRADING CODE")["VOLUME"].shift(-1) - full_day_df["VOLUME"]
     full_day_df["VOL_DIFF_EXCEL"] = full_day_df["VOL_DIFF_EXCEL"].fillna(0)
 
     # Apply Time Filter
@@ -292,7 +287,6 @@ if "Excel Approach Profile" in display_options:
         st.info("""
         **Excel Logic Explanation:** This chart replicates the Excel formula `=(Next Row Volume - Current Row Volume)` applied to the *Current Row*. 
         By looking forward in time, this method shifts volume traded on a price change tick backward by one row, assigning it to the *previous* price bucket. 
-        This is historically less accurate than PDB's standard backward difference method.
         """)
         
         excel_profile = df_sub.groupby("LTP*").agg(
