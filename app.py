@@ -81,14 +81,12 @@ display_options = st.sidebar.multiselect(
     options=[
         "Ranked Price Stays Table",
         "PDB STAY PRICE Profile",
-        "PDB ALL Price",
-        "Excel Approach Profile",
+        "PDB (EXCEL) Profile",
         "Price / Volume History",
         "Price Volume Reconciliation"
     ],
     default=[
-        "PDB ALL Price",
-        "Excel Approach Profile",
+        "PDB (EXCEL) Profile",
         "Price / Volume History",
         "Price Volume Reconciliation"
     ]
@@ -140,28 +138,9 @@ if st.sidebar.button("🔄 Refresh Data"):
 full_day_df = get_daily_data_with_vol(sel_date)
 
 if not full_day_df.empty:
-    # --- METHOD 1: PDB Logic (Backward Diff) — THE CORRECT METHOD ---
-    # Volume traded AT current row = current cumulative - previous cumulative
+    # --- PDB / EXCEL Logic (Backward Diff: C2 - C1) ---
     full_day_df["VOL_DIFF_PDB"] = full_day_df.groupby("TRADING CODE")["VOLUME"].diff()
     full_day_df["VOL_DIFF_PDB"] = full_day_df["VOL_DIFF_PDB"].fillna(0).clip(lower=0)
-
-    # --- METHOD 2: Excel Logic (Forward Diff) ---
-    # Next Row Volume - Current Row Volume
-    # Last row uses backward diff instead of 0, preserving total volume integrity
-    def excel_vol_diff(grp):
-        fwd = grp.shift(-1) - grp
-        if len(grp) > 1:
-            fwd.iloc[-1] = grp.iloc[-1] - grp.iloc[-2]
-        else:
-            fwd.iloc[-1] = 0
-        return fwd
-
-    full_day_df["VOL_DIFF_EXCEL"] = (
-        full_day_df.groupby("TRADING CODE")["VOLUME"]
-        .transform(excel_vol_diff)
-        .fillna(0)
-        .clip(lower=0)
-    )
 
     # Apply Time Filter
     mask = (
@@ -172,7 +151,7 @@ if not full_day_df.empty:
 else:
     raw_df = pd.DataFrame()
 
-# ---------------- PRICE STAY ANALYSIS (Uses PDB Logic) ----------------
+# ---------------- PRICE STAY ANALYSIS ----------------
 summary = []
 if not raw_df.empty:
     for stock, group in raw_df.groupby("TRADING CODE"):
@@ -236,7 +215,7 @@ if not raw_df.empty and selected_stock != "No Data":
 else:
     df_sub = pd.DataFrame()
 
-# ---------------- Price Stay Profile (PDB Logic) ----------------
+# ---------------- PDB STAY PRICE PROFILE ----------------
 if "PDB STAY PRICE Profile" in display_options:
     if selected_stock != "No Data" and not df_sub.empty:
         stock_summary = analysis_df[analysis_df["Stock"] == selected_stock]
@@ -275,80 +254,47 @@ if "PDB STAY PRICE Profile" in display_options:
         )
         st.plotly_chart(fig_p, use_container_width=True)
 
-# ---------------- FULL PDB PROFILE ----------------
-if "PDB ALL Price" in display_options:
-    if selected_stock != "No Data" and not df_sub.empty:
-        st.subheader(f"📊 PDB ALL Price (Correct Chronological) — {selected_stock}")
 
-        full_profile = df_sub.groupby("LTP*").agg(
+# ---------------- COMBINED PDB (EXCEL) PROFILE ----------------
+if "PDB (EXCEL) Profile" in display_options:
+    if selected_stock != "No Data" and not df_sub.empty:
+        st.subheader(f"📊 PDB (EXCEL) Profile — {selected_stock}")
+        
+        st.info("This logic replicates your Excel steps: Calculate `C2 - C1` (Delta Volume), filter out empty/zero volume ticks, group by price, and sum.")
+
+        # Replicating your Excel Filter for > 0 volume
+        df_filtered = df_sub[df_sub["VOL_DIFF_PDB"] > 0]
+
+        excel_profile = df_filtered.groupby("LTP*").agg(
             Vol_Traded=("VOL_DIFF_PDB", "sum"),
-            Stay_Count=("captured_at", "count")
+            Tick_Count=("captured_at", "count") # Number of positive volume transactions at this price
         ).reset_index().sort_values("LTP*")
 
-        total_volume_pdb = full_profile["Vol_Traded"].sum()
-        full_profile["Vol % of Total"] = (
-            (full_profile["Vol_Traded"] / total_volume_pdb * 100) if total_volume_pdb > 0 else 0
-        )
-
-        fig_full = go.Figure()
-        fig_full.add_trace(go.Bar(
-            y=full_profile["LTP*"], x=full_profile["Stay_Count"], orientation="h",
-            name="Time Stay", marker_color="#EF553B"
-        ))
-        fig_full.add_trace(go.Bar(
-            y=full_profile["LTP*"], x=full_profile["Vol_Traded"], orientation="h",
-            name="Volume", marker_color="#00CC96", base=full_profile["Stay_Count"],
-            hovertemplate="Price: %{y}<br>Volume: %{x}<br>Percent of total: %{customdata:.2f}%",
-            customdata=full_profile["Vol % of Total"]
-        ))
-        fig_full.update_layout(
-            barmode="stack", template="plotly_dark",
-            xaxis_title="Minutes / Volume", yaxis_title="Price (BDT)",
-            height=400 + len(full_profile) * 10,
-            legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center"),
-            margin=dict(l=10, r=10, t=80, b=20)
-        )
-        st.plotly_chart(fig_full, use_container_width=True)
-
-# ---------------- EXCEL APPROACH PROFILE ----------------
-if "Excel Approach Profile" in display_options:
-    if selected_stock != "No Data" and not df_sub.empty:
-        st.subheader(f"📊 EXCEL APPROACH (Forward Difference) — {selected_stock}")
-
-        st.info("""
-        **Excel Logic Explanation:** This chart replicates the Excel formula =(Next Row Volume - Current Row Volume) applied to the *Current Row*.
-        By looking forward in time, this method shifts volume traded on a price change tick backward by one row, assigning it to the *previous* price bucket.
-        """)
-
-        excel_profile = df_sub.groupby("LTP*").agg(
-            Vol_Traded=("VOL_DIFF_EXCEL", "sum"),
-            Stay_Count=("captured_at", "count")
-        ).reset_index().sort_values("LTP*")
-
-        total_volume_excel = excel_profile["Vol_Traded"].sum()
+        total_volume = excel_profile["Vol_Traded"].sum()
         excel_profile["Vol % of Total"] = (
-            (excel_profile["Vol_Traded"] / total_volume_excel * 100) if total_volume_excel > 0 else 0
+            (excel_profile["Vol_Traded"] / total_volume * 100) if total_volume > 0 else 0
         )
 
-        fig_excel = go.Figure()
-        fig_excel.add_trace(go.Bar(
-            y=excel_profile["LTP*"], x=excel_profile["Stay_Count"], orientation="h",
-            name="Time Stay", marker_color="#EF553B"
+        fig_combined = go.Figure()
+        fig_combined.add_trace(go.Bar(
+            y=excel_profile["LTP*"], x=excel_profile["Tick_Count"], orientation="h",
+            name="Volume Ticks", marker_color="#EF553B"
         ))
-        fig_excel.add_trace(go.Bar(
+        fig_combined.add_trace(go.Bar(
             y=excel_profile["LTP*"], x=excel_profile["Vol_Traded"], orientation="h",
-            name="Excel Volume", marker_color="#AB63FA", base=excel_profile["Stay_Count"],
-            hovertemplate="Price: %{y}<br>Excel Volume: %{x}<br>Percent of total: %{customdata:.2f}%",
+            name="Volume Traded", marker_color="#00CC96", base=excel_profile["Tick_Count"],
+            hovertemplate="Price: %{y}<br>Volume: %{x:,}<br>Percent of total: %{customdata:.2f}%",
             customdata=excel_profile["Vol % of Total"]
         ))
-        fig_excel.update_layout(
+        fig_combined.update_layout(
             barmode="stack", template="plotly_dark",
-            xaxis_title="Minutes / Volume", yaxis_title="Price (BDT)",
-            height=400 + len(excel_profile) * 10,
+            xaxis_title="Volume Ticks / Traded Volume", yaxis_title="Price (BDT)",
+            height=400 + len(excel_profile) * 15,
             legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center"),
             margin=dict(l=10, r=10, t=80, b=20)
         )
-        st.plotly_chart(fig_excel, use_container_width=True)
+        st.plotly_chart(fig_combined, use_container_width=True)
+
 
 # ---------------- PRICE / VOLUME HISTORY ----------------
 if "Price / Volume History" in display_options:
@@ -362,7 +308,7 @@ if "Price / Volume History" in display_options:
         ))
         fig_hist.add_trace(go.Bar(
             x=df_sub["captured_at"], y=df_sub["VOL_DIFF_PDB"],
-            name="Volume Delta (PDB)", yaxis="y2",
+            name="Volume Delta", yaxis="y2",
             opacity=0.6, marker_color="#636EFA"
         ))
         fig_hist.update_layout(
@@ -379,20 +325,16 @@ if "Price Volume Reconciliation" in display_options:
     if selected_stock != "No Data" and not df_sub.empty:
         st.subheader(f"✅ Price Volume Reconciliation — {selected_stock}")
 
-        # Volume per price level using PDB backward diff
         recon_profile = df_sub.groupby("LTP*").agg(
             Vol_By_Price=("VOL_DIFF_PDB", "sum")
         ).reset_index().sort_values("LTP*")
         recon_profile.rename(columns={"LTP*": "Price"}, inplace=True)
 
-        # True cumulative total = last VOLUME minus first VOLUME in filtered window
-        # This is the ground truth: how much volume actually traded in this time range
         cumulative_total = int(df_sub["VOLUME"].iloc[-1] - df_sub["VOLUME"].iloc[0])
         price_vol_sum = int(recon_profile["Vol_By_Price"].sum())
         diff = cumulative_total - price_vol_sum
         match = abs(diff) == 0
 
-        # --- Summary Metrics ---
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("Cumulative Vol (Last − First)", f"{cumulative_total:,}")
         col2.metric("Sum of Price-Level Vols", f"{price_vol_sum:,}")
@@ -405,7 +347,6 @@ if "Price Volume Reconciliation" in display_options:
                 "in the data feed, or negative volume corrections being clipped."
             )
 
-        # --- Bar chart: volume per price level ---
         fig_recon = go.Figure()
 
         fig_recon.add_trace(go.Bar(
@@ -417,7 +358,6 @@ if "Price Volume Reconciliation" in display_options:
             hovertemplate="Price: %{y}<br>Vol at Price: %{x:,}<extra></extra>"
         ))
 
-        # Vertical line showing cumulative total for reference
         fig_recon.add_vline(
             x=cumulative_total,
             line_dash="dash",
@@ -437,7 +377,6 @@ if "Price Volume Reconciliation" in display_options:
         )
         st.plotly_chart(fig_recon, use_container_width=True)
 
-        # --- Reconciliation breakdown table ---
         st.markdown("**📄 Price-Level Volume Breakdown**")
 
         recon_profile["Vol % of Cumulative"] = (
@@ -448,7 +387,6 @@ if "Price Volume Reconciliation" in display_options:
         recon_display = recon_profile[["Price", "Vol_By_Price", "Vol % of Cumulative"]].copy()
         recon_display.columns = ["Price (BDT)", "Vol Traded", "% of Cumulative Total"]
 
-        # Append totals row
         totals_row = pd.DataFrame([{
             "Price (BDT)": "TOTAL",
             "Vol Traded": price_vol_sum,
