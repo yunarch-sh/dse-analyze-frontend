@@ -117,10 +117,11 @@ def get_daily_data_with_vol(selected_date):
         df["captured_at"] = df["captured_at"].dt.tz_convert(dhaka_tz)
         
         # 2. Calculate VOL_DIFF on the full day's data BEFORE time filtering
+        # This prevents missing early volume or breaking math during UI filter changes
         df = df.sort_values(["TRADING CODE", "captured_at"])
         df["VOL_DIFF"] = df.groupby("TRADING CODE")["VOLUME"].diff()
         df["VOL_DIFF"] = df["VOL_DIFF"].fillna(0)
-        df["VOL_DIFF"] = df["VOL_DIFF"].clip(lower=0)
+        df["VOL_DIFF"] = df["VOL_DIFF"].clip(lower=0) # Fixes negative volume glitches automatically
         
         return df
     except Exception as e:
