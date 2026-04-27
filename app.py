@@ -206,41 +206,61 @@ if "PDB ALL Price" in display_options and not df_sub.empty:
     st.plotly_chart(fig, use_container_width=True)
 
 # ---------------- HISTORY ----------------
-if "Price / Volume History" in display_options and not df_sub.empty:
-    st.subheader("⏱️ Price / Volume History")
+# ---------------- PRICE / VOLUME HISTORY (FIXED) ----------------
+if "Price / Volume History" in display_options:
+    if not df_sub.empty:
+        st.subheader(f"⏱️ Price / Volume History — {selected_stock}")
 
-    df_hist = df_sub.sort_values("captured_at").copy()
+        df_hist = df_sub.sort_values("captured_at").copy()
 
-    # optional: remove zero volume noise
-    df_hist["DV_clean"] = df_hist["DV"].fillna(0)
+        fig_hist = go.Figure()
 
-    fig = go.Figure()
+        # PRICE (Primary Axis)
+        fig_hist.add_trace(go.Scatter(
+            x=df_hist["captured_at"],
+            y=df_hist["LTP*"],
+            name="Price (LTP*)",
+            line=dict(color="#00CC96", width=2),
+            yaxis="y1"
+        ))
 
-    # Price line (primary axis feel)
-    fig.add_trace(go.Scatter(
-        x=df_hist["captured_at"],
-        y=df_hist["LTP*"],
-        mode="lines",
-        name="Price (LTP*)"
-    ))
+        # VOLUME (Secondary Axis)
+        fig_hist.add_trace(go.Bar(
+            x=df_hist["captured_at"],
+            y=df_hist["VOL_DIFF_PDB"],
+            name="Volume Delta (PDB)",
+            marker_color="#636EFA",
+            opacity=0.4,
+            yaxis="y2"
+        ))
 
-    # Volume bars (secondary visual separation)
-    fig.add_trace(go.Bar(
-        x=df_hist["captured_at"],
-        y=df_hist["DV_clean"],
-        name="Volume (ΔV)",
-        opacity=0.4
-    ))
+        fig_hist.update_layout(
+            template="plotly_dark",
+            height=450,
+            barmode="overlay",
+            hovermode="x unified",
 
-    fig.update_layout(
-        barmode="overlay",
-        xaxis_title="Time",
-        yaxis_title="Value",
-        hovermode="x unified",
-        legend=dict(orientation="h")
-    )
+            xaxis=dict(title="Time"),
 
-    st.plotly_chart(fig, use_container_width=True)
+            # Primary Y-axis (Price)
+            yaxis=dict(
+                title="Price",
+                side="left"
+            ),
+
+            # Secondary Y-axis (Volume)
+            yaxis2=dict(
+                title="Volume (ΔPDB)",
+                overlaying="y",
+                side="right",
+                showgrid=False
+            ),
+
+            legend=dict(orientation="h")
+        )
+
+        st.plotly_chart(fig_hist, use_container_width=True)
+
 
 # ---------------- RECONCILIATION ----------------
 if "Price Volume Reconciliation" in display_options and not df_sub.empty:
