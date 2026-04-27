@@ -94,8 +94,6 @@ display_options = st.sidebar.multiselect(
 
 dt_start = datetime.combine(sel_date, t_start, tzinfo=dhaka_tz).astimezone(timezone.utc)
 dt_end = datetime.combine(sel_date, t_end, tzinfo=dhaka_tz).astimezone(timezone.utc)
-display_start = dt_start.astimezone(dhaka_tz).strftime("%H:%M")
-display_end = dt_end.astimezone(dhaka_tz).strftime("%H:%M")
 
 if st.sidebar.button("Log Out"):
     st.session_state["password_correct"] = False
@@ -132,12 +130,25 @@ if st.sidebar.button("🔄 Refresh Data"):
     st.session_state["refresh_click"] += 1
     st.cache_data.clear()
 
-# ---------------- APPLY FILTERS & CALCULATE DELTAS ----------------
+# ---------------- APPLY FILTERS & CALCULATE DV ----------------
 full_day_df = get_daily_data_with_vol(sel_date)
 
 if not full_day_df.empty:
-    full_day_df["VOL_DIFF_PDB"] = full_day_df.groupby("TRADING CODE")["VOLUME"].diff()
-    full_day_df["VOL_DIFF_PDB"] = full_day_df["VOL_DIFF_PDB"].fillna(0).clip(lower=0)
+
+    # ---------------- DV LOGIC (REPLACED PDB LOGIC) ----------------
+    def compute_dv(grp):
+        dv = grp.diff()
+        dv.iloc[0] = 0
+        return dv
+
+    full_day_df["dv"] = (
+        full_day_df.groupby("TRADING CODE")["VOLUME"]
+        .transform(compute_dv)
+        .fillna(0)
+    )
+
+    full_day_df = full_day_df[full_day_df["dv"] != 0]
+    full_day_df["dv"] = full_day_df["dv"].clip(lower=0)
 
     mask = (
         (full_day_df["captured_at"] >= dt_start.astimezone(dhaka_tz)) &
@@ -164,7 +175,7 @@ if not raw_df.empty:
             start_t = stay_group["captured_at"].iloc[0]
             end_t = stay_group["captured_at"].iloc[-1]
             duration = (end_t - start_t).total_seconds() / 60
-            vol_diff = int(stay_group["VOL_DIFF_PDB"].sum())
+            vol_diff = int(stay_group["dv"].sum())
             if vol_diff > 0:
                 summary.append({
                     "Stock": stock,
@@ -215,6 +226,7 @@ else:
 if "PDB STAY PRICE Profile" in display_options:
     if selected_stock != "No Data" and not df_sub.empty:
         stock_summary = analysis_df[analysis_df["Stock"] == selected_stock]
+
         profile_data = (
             stock_summary.groupby("Price").agg({
                 "Vol Traded": "sum",
@@ -226,7 +238,7 @@ if "PDB STAY PRICE Profile" in display_options:
 
         st.subheader(f"📊 PDB STAY PRICE Profile — {selected_stock}")
 
-        pdb_total = df_sub["VOL_DIFF_PDB"].sum()
+        pdb_total = df_sub["dv"].sum()
         profile_data["Vol % of Total"] = (
             (profile_data["Vol Traded"] / pdb_total * 100) if pdb_total > 0 else 0
         )
@@ -259,7 +271,7 @@ if "PDB ALL Price" in display_options:
         st.subheader(f"📊 PDB ALL Price — {selected_stock}")
 
         full_profile = df_sub.groupby("LTP*").agg(
-            Vol_Traded=("VOL_DIFF_PDB", "sum"),
+            Vol_Traded=("dv", "sum"),
             Stay_Count=("captured_at", "count")
         ).reset_index().sort_values("LTP*")
 
@@ -277,8 +289,7 @@ if "PDB ALL Price" in display_options:
             y=full_profile["LTP*"], x=full_profile["Vol_Traded"],
             orientation="h", name="Volume", marker_color="#00CC96",
             base=full_profile["Stay_Count"],
-            customdata=full_profile["Vol % of Total"],
-            hovertemplate="Price: %{y}<br>Volume: %{x}<br>% of total: %{customdata:.2f}%"
+            customdata=full_profile["Vol % of Total"]
         ))
 
         fig_full.update_layout(
@@ -298,12 +309,11 @@ if "Price / Volume History" in display_options:
         fig_hist = go.Figure()
         fig_hist.add_trace(go.Scatter(
             x=df_sub["captured_at"], y=df_sub["LTP*"],
-            name="Price", line=dict(color="#00CC96")
+            name="Price"
         ))
         fig_hist.add_trace(go.Bar(
-            x=df_sub["captured_at"], y=df_sub["VOL_DIFF_PDB"],
-            name="Volume Delta (PDB)", yaxis="y2",
-            opacity=0.6, marker_color="#636EFA"
+            x=df_sub["captured_at"], y=df_sub["dv"],
+            name="Volume Delta (DV)", yaxis="y2", opacity=0.6
         ))
 
         fig_hist.update_layout(
@@ -320,8 +330,9 @@ if "Price Volume Reconciliation" in display_options:
         st.subheader(f"✅ Price Volume Reconciliation — {selected_stock}")
 
         recon_profile = df_sub.groupby("LTP*").agg(
-            Vol_By_Price=("VOL_DIFF_PDB", "sum")
+            Vol_By_Price=("dv", "sum")
         ).reset_index().sort_values("LTP*")
+
         recon_profile.rename(columns={"LTP*": "Price"}, inplace=True)
 
         cumulative_total = int(df_sub["VOLUME"].iloc[-1] - df_sub["VOLUME"].iloc[0])
