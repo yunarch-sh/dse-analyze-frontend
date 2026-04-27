@@ -119,12 +119,9 @@ def get_daily_data_with_vol(selected_date):
 
     df = df.sort_values(["TRADING CODE", "captured_at"])
 
-    # ---------------- FIXED ARCHITECTURE ----------------
-    # TRUE VOLUME DELTA (ONLY SOURCE OF TRUTH)
     df["DV"] = df.groupby("TRADING CODE")["VOLUME"].diff().fillna(0)
     df["DV"] = df["DV"].clip(lower=0)
 
-    # KEEP UI COMPATIBLE (NO UI CHANGE)
     df["VOL_DIFF_PDB"] = df["DV"]
 
     return df
@@ -199,13 +196,14 @@ if "PDB ALL Price" in display_options and not df_sub.empty:
         Stay_Count=("captured_at", "count")
     ).reset_index()
 
+    # ✅ REMOVE PRICE 0 & VOL 0 ROWS
+    full_profile = full_profile[
+        ~((full_profile["LTP*"] == 0) & (full_profile["Vol_Traded"] == 0))
+    ]
+
     fig = go.Figure()
     fig.add_trace(go.Bar(y=full_profile["LTP*"], x=full_profile["Vol_Traded"], orientation="h"))
     st.plotly_chart(fig, use_container_width=True)
-
-# ---------------- EXCEL BLOCK (DISABLED - ARCHITECTURE FIX) ----------------
-if "Excel Approach Profile" in display_options:
-    st.info("Excel Approach removed due to inconsistent cumulative volume logic.")
 
 # ---------------- HISTORY ----------------
 if "Price / Volume History" in display_options and not df_sub.empty:
