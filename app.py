@@ -82,15 +82,12 @@ display_options = st.sidebar.multiselect(
         "Ranked Price Stays Table",
         "PDB STAY PRICE Profile",
         "PDB ALL Price",
-        "Excel Approach Profile",
         "Price / Volume History",
         "Price Volume Reconciliation"
     ],
     default=[
         "PDB ALL Price",
-        "Excel Approach Profile",
         "Price / Volume History",
-        "Price Volume Reconciliation"
     ]
 )
 
