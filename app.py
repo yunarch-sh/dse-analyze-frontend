@@ -31,10 +31,8 @@ render_header()
 def check_password():
     if "password_correct" not in st.session_state:
         st.session_state["password_correct"] = False
-
     if st.session_state["password_correct"]:
         return True
-
     with st.form("login"):
         st.subheader("🔐 Access Control")
         username = st.text_input("Username")
@@ -82,20 +80,14 @@ display_options = st.sidebar.multiselect(
         "Ranked Price Stays Table",
         "PDB STAY PRICE Profile",
         "PDB ALL Price",
-        "Excel Approach Profile",
-        "Price / Volume History",
-        "Price Volume Reconciliation"
+        "Price / Volume History"
     ],
     default=[
+        "Ranked Price Stays Table",
         "PDB ALL Price",
-        "Excel Approach Profile",
-        "Price / Volume History",
-        "Price Volume Reconciliation"
+        "Price / Volume History"
     ]
 )
-
-dt_start = datetime.combine(sel_date, t_start, tzinfo=dhaka_tz).astimezone(timezone.utc)
-dt_end = datetime.combine(sel_date, t_end, tzinfo=dhaka_tz).astimezone(timezone.utc)
 
 if st.sidebar.button("Log Out"):
     st.session_state["password_correct"] = False
@@ -106,127 +98,81 @@ if st.sidebar.button("Log Out"):
 def get_daily_data_with_vol(selected_date):
     start_of_day = datetime.combine(selected_date, time(0, 0), tzinfo=dhaka_tz).astimezone(timezone.utc)
     end_of_day = datetime.combine(selected_date, time(23, 59, 59), tzinfo=dhaka_tz).astimezone(timezone.utc)
-
     query = {"captured_at": {"$gte": start_of_day, "$lte": end_of_day}}
     cursor = collection.find(query).sort("captured_at", 1)
     df = pd.DataFrame(list(cursor))
-
     if df.empty:
         return df
-
-    df["captured_at"] = pd.to_datetime(df["captured_at"], errors='coerce', utc=True)
-    df["captured_at"] = df["captured_at"].dt.tz_convert(dhaka_tz)
-
+    df["captured_at"] = pd.to_datetime(df["captured_at"], errors='coerce', utc=True).dt.tz_convert(dhaka_tz)
     df = df.sort_values(["TRADING CODE", "captured_at"])
-
-    # ---------------- FIXED ARCHITECTURE ----------------
-    # TRUE VOLUME DELTA (ONLY SOURCE OF TRUTH)
+    
+    # EXCEL LOGIC: dv = (C3 - C2)
     df["DV"] = df.groupby("TRADING CODE")["VOLUME"].diff().fillna(0)
     df["DV"] = df["DV"].clip(lower=0)
-
-    # KEEP UI COMPATIBLE (NO UI CHANGE)
-    df["VOL_DIFF_PDB"] = df["DV"]
-
     return df
 
-# ---------------- MANUAL REFRESH ----------------
-if "refresh_click" not in st.session_state:
-    st.session_state["refresh_click"] = 0
-
-if st.sidebar.button("🔄 Refresh Data"):
-    st.session_state["refresh_click"] += 1
-    st.cache_data.clear()
-
-# ---------------- APPLY FILTERS ----------------
 full_day_df = get_daily_data_with_vol(sel_date)
 
 if not full_day_df.empty:
-    mask = (
-        (full_day_df["captured_at"] >= dt_start.astimezone(dhaka_tz)) &
-        (full_day_df["captured_at"] <= dt_end.astimezone(dhaka_tz))
-    )
+    dt_start = datetime.combine(sel_date, t_start, tzinfo=dhaka_tz)
+    dt_end = datetime.combine(sel_date, t_end, tzinfo=dhaka_tz)
+    mask = (full_day_df["captured_at"] >= dt_start) & (full_day_df["captured_at"] <= dt_end)
     raw_df = full_day_df.loc[mask].copy()
 else:
     raw_df = pd.DataFrame()
 
-# ---------------- PRICE STAY ANALYSIS ----------------
+# ---------------- ANALYSIS ----------------
 summary = []
 if not raw_df.empty:
     for stock, group in raw_df.groupby("TRADING CODE"):
         group = group.copy()
         group["price_changed"] = group["LTP*"] != group["LTP*"].shift()
         group["stay_id"] = group["price_changed"].cumsum()
-
         for _, stay_group in group.groupby("stay_id"):
-            if len(stay_group) < 2:
-                continue
-
-            summary.append({
-                "Stock": stock,
-                "Price": stay_group["LTP*"].iloc[0],
-                "Stay (Mins)": (stay_group["captured_at"].iloc[-1] -
-                                stay_group["captured_at"].iloc[0]).total_seconds() / 60,
-                "Vol Traded": stay_group["DV"].sum(),
-                "Start": stay_group["captured_at"].iloc[0],
-                "End": stay_group["captured_at"].iloc[-1]
-            })
-
-analysis_df = pd.DataFrame(summary)
+            if len(stay_group) >= 1:
+                summary.append({
+                    "Stock": stock,
+                    "Price": stay_group["LTP*"].iloc[0],
+                    "Stay (Mins)": round((stay_group["captured_at"].iloc[-1] - stay_group["captured_at"].iloc[0]).total_seconds() / 60, 1),
+                    "Vol Traded": int(stay_group["DV"].sum()),
+                    "Start": stay_group["captured_at"].iloc[0].strftime("%H:%M"),
+                    "End": stay_group["captured_at"].iloc[-1].strftime("%H:%M")
+                })
+analysis_df = pd.DataFrame(summary) if summary else pd.DataFrame()
 
 # ---------------- RANKED TABLE ----------------
-if "Ranked Price Stays Table" in display_options:
+if "Ranked Price Stays Table" in display_options and not analysis_df.empty:
     st.subheader("📋 Ranked Price Stays")
-    st.dataframe(analysis_df, use_container_width=True, hide_index=True)
-    st.divider()
+    st.dataframe(analysis_df.sort_values("Stay (Mins)", ascending=False), use_container_width=True, hide_index=True)
 
 # ---------------- STOCK SELECTION ----------------
-stock_list = (
-    sorted(analysis_df["Stock"].unique()) if not analysis_df.empty
-    else sorted(raw_df["TRADING CODE"].unique()) if not raw_df.empty
-    else ["No Data"]
-)
-
+stock_list = sorted(raw_df["TRADING CODE"].unique()) if not raw_df.empty else ["No Data"]
 selected_stock = st.selectbox("🔍 Select Stock", stock_list)
-
 df_sub = raw_df[raw_df["TRADING CODE"] == selected_stock] if selected_stock != "No Data" else pd.DataFrame()
 
-# ---------------- PDB PROFILE ----------------
+# ---------------- GRAPHS ----------------
+if "PDB STAY PRICE Profile" in display_options and not df_sub.empty:
+    st.subheader(f"📊 PDB STAY PRICE Profile — {selected_stock}")
+    prof = analysis_df[analysis_df["Stock"] == selected_stock].groupby("Price").agg({"Vol Traded": "sum", "Stay (Mins)": "sum"}).reset_index()
+    fig = go.Figure()
+    fig.add_trace(go.Bar(y=prof["Price"], x=prof["Stay (Mins)"], orientation="h", name="Stay (Mins)", marker_color="#EF553B"))
+    fig.add_trace(go.Bar(y=prof["Price"], x=prof["Vol_Traded"], orientation="h", name="Volume", marker_color="#636EFA", base=prof["Stay (Mins)"]))
+    fig.update_layout(barmode="stack", template="plotly_dark", height=500)
+    st.plotly_chart(fig, use_container_width=True)
+
 if "PDB ALL Price" in display_options and not df_sub.empty:
     st.subheader(f"📊 PDB ALL Price — {selected_stock}")
-
-    full_profile = df_sub.groupby("LTP*").agg(
-        Vol_Traded=("DV", "sum"),
-        Stay_Count=("captured_at", "count")
-    ).reset_index()
-
+    full_profile = df_sub.groupby("LTP*").agg(Vol_Traded=("DV", "sum"), Stay_Count=("captured_at", "count")).reset_index()
     fig = go.Figure()
-    fig.add_trace(go.Bar(y=full_profile["LTP*"], x=full_profile["Vol_Traded"], orientation="h"))
+    fig.add_trace(go.Bar(y=full_profile["LTP*"], x=full_profile["Stay_Count"], orientation="h", name="Stay (Ticks)", marker_color="#EF553B"))
+    fig.add_trace(go.Bar(y=full_profile["LTP*"], x=full_profile["Vol_Traded"], orientation="h", name="Volume", marker_color="#00CC96", base=full_profile["Stay_Count"]))
+    fig.update_layout(barmode="stack", template="plotly_dark", height=500)
     st.plotly_chart(fig, use_container_width=True)
 
-# ---------------- EXCEL BLOCK (DISABLED - ARCHITECTURE FIX) ----------------
-if "Excel Approach Profile" in display_options:
-    st.info("Excel Approach removed due to inconsistent cumulative volume logic.")
-
-# ---------------- HISTORY ----------------
 if "Price / Volume History" in display_options and not df_sub.empty:
-    st.subheader("⏱️ Price / Volume History")
-
+    st.subheader(f"⏱️ Price / Volume History — {selected_stock}")
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df_sub["captured_at"], y=df_sub["LTP*"]))
-    fig.add_trace(go.Bar(x=df_sub["captured_at"], y=df_sub["DV"]))
+    fig.add_trace(go.Scatter(x=df_sub["captured_at"], y=df_sub["LTP*"], name="Price", line=dict(color="#00CC96")))
+    fig.add_trace(go.Bar(x=df_sub["captured_at"], y=df_sub["DV"], name="Volume Delta", yaxis="y2", opacity=0.6, marker_color="#636EFA"))
+    fig.update_layout(template="plotly_dark", yaxis2=dict(overlaying="y", side="right"))
     st.plotly_chart(fig, use_container_width=True)
-
-# ---------------- RECONCILIATION ----------------
-if "Price Volume Reconciliation" in display_options and not df_sub.empty:
-    st.subheader("✅ Reconciliation")
-
-    recon_profile = df_sub.groupby("LTP*").agg(
-        Vol_By_Price=("DV", "sum")
-    ).reset_index()
-
-    cumulative_total = int(df_sub["VOLUME"].iloc[-1] - df_sub["VOLUME"].iloc[0])
-    price_vol_sum = int(recon_profile["Vol_By_Price"].sum())
-
-    st.metric("Cumulative", cumulative_total)
-    st.metric("Summed DV", price_vol_sum)
-    st.metric("Difference", cumulative_total - price_vol_sum)
