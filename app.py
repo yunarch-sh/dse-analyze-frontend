@@ -80,13 +80,14 @@ display_options = st.sidebar.multiselect(
     "Select Views to Display",
     options=[
         "Ranked Price Stays Table",
-        "PDB STAY PRICE Profile",
+        "Price Stay Duration",
         "PDB ALL Price",
         "Price / Volume History",
         "Price Volume Reconciliation"
     ],
     default=[
         "PDB ALL Price",
+        "Price Stay Duration"
         "Price / Volume History",
     ]
 )
@@ -204,7 +205,7 @@ if "PDB ALL Price" in display_options and not df_sub.empty:
 
 # ---------------- PDB ALL PRICE ----------------
 # ---------------- PDB ALL PRICE ----------------
-if "PDB ALL Price" in display_options and not df_sub.empty:
+if "Price Stay Duration" in display_options and not df_sub.empty:
     st.subheader(f"⏱️ Price Stay Duration — {selected_stock}")
 
     stay_profile = full_profile[full_profile["LTP*"] > 0].copy()
