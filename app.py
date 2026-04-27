@@ -279,8 +279,8 @@ if "Price / Volume History" in display_options:
     if not df_sub.empty:
         st.subheader(f"⏱️ Price / Volume History — {selected_stock}")
 
-        df_hist = df_sub.sort_values("captured_at").copy()
-
+        df_hist = df_sub[df_sub["LTP*"] > 0].sort_values("captured_at").copy()
+        
         fig_hist = go.Figure()
 
         # PRICE (Primary Axis)
