@@ -209,9 +209,37 @@ if "PDB ALL Price" in display_options and not df_sub.empty:
 if "Price / Volume History" in display_options and not df_sub.empty:
     st.subheader("⏱️ Price / Volume History")
 
+    df_hist = df_sub.sort_values("captured_at").copy()
+
+    # optional: remove zero volume noise
+    df_hist["DV_clean"] = df_hist["DV"].fillna(0)
+
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df_sub["captured_at"], y=df_sub["LTP*"]))
-    fig.add_trace(go.Bar(x=df_sub["captured_at"], y=df_sub["DV"]))
+
+    # Price line (primary axis feel)
+    fig.add_trace(go.Scatter(
+        x=df_hist["captured_at"],
+        y=df_hist["LTP*"],
+        mode="lines",
+        name="Price (LTP*)"
+    ))
+
+    # Volume bars (secondary visual separation)
+    fig.add_trace(go.Bar(
+        x=df_hist["captured_at"],
+        y=df_hist["DV_clean"],
+        name="Volume (ΔV)",
+        opacity=0.4
+    ))
+
+    fig.update_layout(
+        barmode="overlay",
+        xaxis_title="Time",
+        yaxis_title="Value",
+        hovermode="x unified",
+        legend=dict(orientation="h")
+    )
+
     st.plotly_chart(fig, use_container_width=True)
 
 # ---------------- RECONCILIATION ----------------
