@@ -80,14 +80,14 @@ display_options = st.sidebar.multiselect(
     "Select Views to Display",
     options=[
         "Ranked Price Stays Table",
-        "Price Stay Duration",
         "PDB ALL Price",
+        "Price Stay Duration",
         "Price / Volume History",
         "Price Volume Reconciliation"
     ],
     default=[
         "PDB ALL Price",
-        "Price Stay Duration"
+        "Price Stay Duration",
         "Price / Volume History",
     ]
 )
@@ -185,27 +185,50 @@ selected_stock = st.selectbox("🔍 Select Stock", stock_list)
 
 df_sub = raw_df[raw_df["TRADING CODE"] == selected_stock] if selected_stock != "No Data" else pd.DataFrame()
 
-# ---------------- PDB PROFILE ----------------
-if "PDB ALL Price" in display_options and not df_sub.empty:
-    st.subheader(f"📊 PDB ALL Price — {selected_stock}")
-
+# ---------------- COMPUTE FULL PROFILE (shared) ----------------
+full_profile = pd.DataFrame()
+if not df_sub.empty:
     full_profile = df_sub.groupby("LTP*").agg(
         Vol_Traded=("DV", "sum"),
         Stay_Count=("captured_at", "count")
-    ).reset_index()
-
-    # ✅ REMOVE PRICE 0 & VOL 0 ROWS
+    ).reset_index().sort_values("LTP*")
     full_profile = full_profile[
         ~((full_profile["LTP*"] == 0) & (full_profile["Vol_Traded"] == 0))
     ]
 
+# ---------------- PDB ALL PRICE ----------------
+if "PDB ALL Price" in display_options and not full_profile.empty:
+    st.subheader(f"📊 PDB ALL Price — {selected_stock}")
+
+    total_volume = full_profile["Vol_Traded"].sum()
+    full_profile["Vol % of Total"] = (
+        (full_profile["Vol_Traded"] / total_volume * 100) if total_volume > 0 else 0
+    )
+
     fig = go.Figure()
-    fig.add_trace(go.Bar(y=full_profile["LTP*"], x=full_profile["Vol_Traded"], orientation="h"))
+    fig.add_trace(go.Bar(
+        y=full_profile["LTP*"], x=full_profile["Stay_Count"],
+        orientation="h", name="Time Stay", marker_color="#EF553B"
+    ))
+    fig.add_trace(go.Bar(
+        y=full_profile["LTP*"], x=full_profile["Vol_Traded"],
+        orientation="h", name="Volume", marker_color="#00CC96",
+        base=full_profile["Stay_Count"],
+        customdata=full_profile["Vol % of Total"],
+        hovertemplate="Price: %{y}<br>Volume: %{x}<br>% of total: %{customdata:.2f}%"
+    ))
+
+    fig.update_layout(
+        barmode="stack",
+        template="plotly_dark",
+        xaxis_title="Snapshots / Volume",
+        yaxis_title="Price (BDT)",
+        height=400 + len(full_profile) * 10
+    )
     st.plotly_chart(fig, use_container_width=True)
 
-# ---------------- PDB ALL PRICE ----------------
-# ---------------- PDB ALL PRICE ----------------
-if "Price Stay Duration" in display_options and not df_sub.empty:
+# ---------------- PRICE STAY DURATION ----------------
+if "Price Stay Duration" in display_options and not full_profile.empty:
     st.subheader(f"⏱️ Price Stay Duration — {selected_stock}")
 
     stay_profile = full_profile[full_profile["LTP*"] > 0].copy()
@@ -235,17 +258,15 @@ if "Price Stay Duration" in display_options and not df_sub.empty:
     )
     st.plotly_chart(fig_stay, use_container_width=True)
 
-# ---------------- HISTORY ----------------
-# ---------------- PRICE / VOLUME HISTORY (FIXED) ----------------
+# ---------------- PRICE / VOLUME HISTORY ----------------
 if "Price / Volume History" in display_options:
     if not df_sub.empty:
         st.subheader(f"⏱️ Price / Volume History — {selected_stock}")
 
         df_hist = df_sub[df_sub["LTP*"] > 0].sort_values("captured_at").copy()
-        
+
         fig_hist = go.Figure()
 
-        # PRICE (Primary Axis)
         fig_hist.add_trace(go.Scatter(
             x=df_hist["captured_at"],
             y=df_hist["LTP*"],
@@ -254,7 +275,6 @@ if "Price / Volume History" in display_options:
             yaxis="y1"
         ))
 
-        # VOLUME (Secondary Axis)
         fig_hist.add_trace(go.Bar(
             x=df_hist["captured_at"],
             y=df_hist["VOL_DIFF_PDB"],
@@ -269,28 +289,18 @@ if "Price / Volume History" in display_options:
             height=450,
             barmode="overlay",
             hovermode="x unified",
-
             xaxis=dict(title="Time"),
-
-            # Primary Y-axis (Price)
-            yaxis=dict(
-                title="Price",
-                side="left"
-            ),
-
-            # Secondary Y-axis (Volume)
+            yaxis=dict(title="Price", side="left"),
             yaxis2=dict(
                 title="Volume (ΔPDB)",
                 overlaying="y",
                 side="right",
                 showgrid=False
             ),
-
             legend=dict(orientation="h")
         )
 
         st.plotly_chart(fig_hist, use_container_width=True)
-
 
 # ---------------- RECONCILIATION ----------------
 if "Price Volume Reconciliation" in display_options and not df_sub.empty:
