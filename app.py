@@ -220,7 +220,7 @@ if "PDB ALL Price" in display_options and not df_sub.empty:
         yaxis_title="Price (BDT)",
         height=400 + len(full_profile) * 10
     )
-    st.plotly_chart(fig, use_container_width=True
+    st.plotly_chart(fig, use_container_width=True)
 
 # ---------------- PDB ALL PRICE ----------------
 if "PDB ALL Price" in display_options and not df_sub.empty:
