@@ -188,49 +188,22 @@ selected_stock = st.selectbox("🔍 Select Stock", stock_list)
 df_sub = raw_df[raw_df["TRADING CODE"] == selected_stock] if selected_stock != "No Data" else pd.DataFrame()
 
 # ---------------- PDB PROFILE ----------------
-# ---------------- PDB ALL PRICE ----------------
 if "PDB ALL Price" in display_options and not df_sub.empty:
     st.subheader(f"📊 PDB ALL Price — {selected_stock}")
 
     full_profile = df_sub.groupby("LTP*").agg(
         Vol_Traded=("DV", "sum"),
         Stay_Count=("captured_at", "count")
-    ).reset_index().sort_values("LTP*")
+    ).reset_index()
 
     # ✅ REMOVE PRICE 0 & VOL 0 ROWS
     full_profile = full_profile[
         ~((full_profile["LTP*"] == 0) & (full_profile["Vol_Traded"] == 0))
     ]
 
-    total_volume = full_profile["Vol_Traded"].sum()
-    full_profile["Vol % of Total"] = (
-        (full_profile["Vol_Traded"] / total_volume * 100) if total_volume > 0 else 0
-    )
-
-    fig_full = go.Figure()
-
-    fig_full.add_trace(go.Bar(
-        y=full_profile["LTP*"], x=full_profile["Stay_Count"],
-        orientation="h", name="Time Stay", marker_color="#EF553B"
-    ))
-
-    fig_full.add_trace(go.Bar(
-        y=full_profile["LTP*"], x=full_profile["Vol_Traded"],
-        orientation="h", name="Volume", marker_color="#00CC96",
-        base=full_profile["Stay_Count"],
-        customdata=full_profile["Vol % of Total"],
-        hovertemplate="Price: %{y}<br>Volume: %{x}<br>% of total: %{customdata:.2f}%"
-    ))
-
-    fig_full.update_layout(
-        barmode="stack",
-        template="plotly_dark",
-        xaxis_title="Minutes / Volume",
-        yaxis_title="Price (BDT)",
-        height=400 + len(full_profile) * 10
-    )
-
-    st.plotly_chart(fig_full, use_container_width=True)
+    fig = go.Figure()
+    fig.add_trace(go.Bar(y=full_profile["LTP*"], x=full_profile["Vol_Traded"], orientation="h"))
+    st.plotly_chart(fig, use_container_width=True)
 
 # ---------------- HISTORY ----------------
 # ---------------- PRICE / VOLUME HISTORY (FIXED) ----------------
