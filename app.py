@@ -206,6 +206,7 @@ if "PDB ALL Price" in display_options and not df_sub.empty:
     st.plotly_chart(fig, use_container_width=True)
 
 # ---------------- PDB ALL PRICE ----------------
+# ---------------- PDB ALL PRICE ----------------
 if "PDB ALL Price" in display_options and not df_sub.empty:
     st.subheader(f"📊 PDB ALL Price — {selected_stock}")
 
@@ -214,7 +215,6 @@ if "PDB ALL Price" in display_options and not df_sub.empty:
         Stay_Count=("captured_at", "count")
     ).reset_index().sort_values("LTP*")
 
-    # Remove price 0 & vol 0 rows
     full_profile = full_profile[
         ~((full_profile["LTP*"] == 0) & (full_profile["Vol_Traded"] == 0))
     ]
@@ -268,8 +268,11 @@ if "PDB ALL Price" in display_options and not df_sub.empty:
         xaxis_title="Snapshots",
         yaxis_title="Price (BDT)",
         height=400 + len(stay_profile) * 10,
-        yaxis=dict(type="category", categoryorder="array",
-                   categoryarray=stay_profile["LTP*"].astype(str).tolist())
+        yaxis=dict(
+            type="category",
+            categoryorder="array",
+            categoryarray=stay_profile["LTP*"].astype(str).tolist()
+        )
     )
     st.plotly_chart(fig_stay, use_container_width=True)
 
