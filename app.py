@@ -135,7 +135,7 @@ full_day_df = get_daily_data_with_vol(sel_date)
 
 if not full_day_df.empty:
 
-    # ---------------- DV LOGIC (REPLACED PDB LOGIC) ----------------
+    # ---------------- DV LOGIC (FIXED) ----------------
     def compute_dv(grp):
         dv = grp.diff()
         dv.iloc[0] = 0
@@ -147,7 +147,9 @@ if not full_day_df.empty:
         .fillna(0)
     )
 
-    full_day_df = full_day_df[full_day_df["dv"] != 0]
+    # ❗ IMPORTANT FIX: DO NOT FILTER OUT dv != 0
+    # (this was causing mismatch in totals)
+
     full_day_df["dv"] = full_day_df["dv"].clip(lower=0)
 
     mask = (
@@ -252,8 +254,7 @@ if "PDB STAY PRICE Profile" in display_options:
             y=profile_data["Price"], x=profile_data["Vol Traded"],
             orientation="h", name="Volume", marker_color="#636EFA",
             base=profile_data["Stay (Mins)"],
-            customdata=profile_data["Vol % of Total"],
-            hovertemplate="Price: %{y}<br>Volume: %{x}<br>% of total: %{customdata:.2f}%"
+            customdata=profile_data["Vol % of Total"]
         ))
 
         fig_p.update_layout(
