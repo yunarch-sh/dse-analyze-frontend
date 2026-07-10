@@ -79,12 +79,14 @@ st.sidebar.header("👁️ Display Options")
 display_options = st.sidebar.multiselect(
     "Select Views to Display",
     options=[
+        "VPOC Status Table",
         "Ranked Price Stays Table",
         "PDB ALL Price",
         "Price / Volume History",
         "Price Volume Reconciliation"
     ],
     default=[
+        "VPOC Status Table",
         "PDB ALL Price",
         "Price / Volume History",
         "Price Volume Reconciliation"
@@ -173,6 +175,172 @@ if "Ranked Price Stays Table" in display_options:
     st.dataframe(analysis_df, use_container_width=True, hide_index=True)
     st.divider()
 
+# ---------------- VPOC STATUS TABLE ----------------
+def build_vpoc_table(df, status_col="closep"):
+    rows = []
+    for stock, group in df.groupby("TRADING CODE"):
+        # VPOC = price with the highest traded volume in the PDB profile
+        profile = group.groupby("LTP*")["DV"].sum()
+        profile = profile[profile.index > 0]
+        if profile.empty:
+            continue
+        vpoc = float(profile.idxmax())
+
+        # Latest raw values of the selected range — no fallbacks
+        def last_value(col):
+            if col not in group.columns:
+                return 0.0
+            series = pd.to_numeric(group[col], errors="coerce").dropna()
+            return float(series.iloc[-1]) if not series.empty else 0.0
+
+        closep = last_value("CLOSEP*")
+        ycp = last_value("YCP*")
+        ltp = last_value("LTP*")
+
+        status_price = {"closep": closep, "ycp": ycp, "ltp": ltp}[status_col]
+        diff = status_price - vpoc
+        if abs(diff) < 1e-9:
+            status = "equal vpoc"
+        elif abs(diff) <= 0.1 + 1e-9:
+            status = "plus minus 0.1 vpoc"
+        elif diff > 0:
+            status = "greater vpoc"
+        else:
+            status = "less vpoc"
+
+        rows.append({
+            "name": stock,
+            "status": status,
+            "diff": round(diff, 2),
+            "closep": closep,
+            "ycp": ycp,
+            "ltp": ltp,
+            "vpoc": vpoc
+        })
+    return pd.DataFrame(rows)
+
+if "VPOC Status Table" in display_options and not raw_df.empty:
+    st.subheader("🎯 VPOC Status")
+
+    status_col = st.radio(
+        "Compute status from",
+        options=["closep", "ycp", "ltp"],
+        horizontal=True,
+        key="vpoc_status_col"
+    )
+
+    vpoc_df = build_vpoc_table(raw_df, status_col)
+
+    if vpoc_df.empty:
+        st.info("No data available to compute VPOC.")
+    else:
+        fcol1, fcol2, fcol3 = st.columns([3, 3, 2])
+        with fcol1:
+            status_filter = st.multiselect(
+                "Filter by Status",
+                options=sorted(vpoc_df["status"].unique())
+            )
+        with fcol2:
+            name_filter = st.text_input("Search Name")
+        with fcol3:
+            page_size = st.selectbox("Rows per page", [10, 20, 50, 100], index=1)
+
+        filtered = vpoc_df
+        if status_filter:
+            filtered = filtered[filtered["status"].isin(status_filter)]
+        if name_filter:
+            filtered = filtered[filtered["name"].str.contains(name_filter, case=False, na=False)]
+
+        total_rows = len(filtered)
+        total_pages = max(1, -(-total_rows // page_size))
+
+        # Prev / Next pagination; snaps back to page 1 when filters change
+        filter_sig = str((sorted(status_filter), name_filter, page_size))
+        if st.session_state.get("vpoc_page_sig") != filter_sig:
+            st.session_state["vpoc_page_sig"] = filter_sig
+            st.session_state["vpoc_page"] = 1
+
+        page = min(max(st.session_state.get("vpoc_page", 1), 1), total_pages)
+
+        # 5-page window of number buttons, centered on the current page
+        window = 5
+        win_start = max(1, min(page - window // 2, total_pages - window + 1))
+        win_end = min(total_pages, win_start + window - 1)
+        page_numbers = list(range(win_start, win_end + 1))
+
+        cols = st.columns([2] + [1] * len(page_numbers) + [2])
+        new_page = None
+
+        with cols[0]:
+            if st.button("⬅ Prev", disabled=page <= 1, use_container_width=True):
+                new_page = page - 1
+        for col, p in zip(cols[1:-1], page_numbers):
+            with col:
+                if st.button(
+                    str(p),
+                    key=f"vpoc_pg_{p}",
+                    type="primary" if p == page else "secondary",
+                    use_container_width=True
+                ):
+                    new_page = p
+        with cols[-1]:
+            if st.button("Next ➡", disabled=page >= total_pages, use_container_width=True):
+                new_page = page + 1
+
+        if new_page is not None and new_page != page:
+            st.session_state["vpoc_page"] = new_page
+            st.rerun()
+
+        start = (page - 1) * page_size
+        page_df = filtered.iloc[start:start + page_size].reset_index(drop=True)
+
+        if total_rows:
+            st.caption(
+                f"Showing {start + 1}–{min(start + page_size, total_rows)} of {total_rows} stocks "
+                f"(page {page}/{total_pages}). Click a row to load that stock below."
+            )
+
+        STATUS_COLORS = {
+            "plus minus 0.1 vpoc": "#F39C12",   # orange
+            "greater vpoc": "#27AE60",          # green
+            "less vpoc": "#E74C3C",             # red
+        }
+
+        def color_by_status(row):
+            color = STATUS_COLORS.get(row["status"])
+            style = f"background-color: {color}; color: white" if color else ""
+            return [style] * len(row)
+
+        styled_df = page_df.style.apply(color_by_status, axis=1).format(
+            {"diff": "{:+.2f}", "closep": "{:.2f}", "ycp": "{:.2f}",
+             "ltp": "{:.2f}", "vpoc": "{:.2f}"}
+        )
+
+        # Key changes whenever filters/page change, so stale row selections
+        # from a previous view are discarded instead of pointing at the wrong row
+        table_key = "vpoc_table_" + str(abs(hash((
+            tuple(sorted(status_filter)), name_filter, page_size, page, status_col
+        ))))
+
+        event = st.dataframe(
+            styled_df,
+            use_container_width=True,
+            hide_index=True,
+            on_select="rerun",
+            selection_mode="single-row",
+            key=table_key
+        )
+
+        if event.selection.rows:
+            row_idx = event.selection.rows[0]
+            if row_idx < len(page_df):
+                clicked = page_df.iloc[row_idx]["name"]
+                if st.session_state.get("vpoc_last_clicked") != clicked:
+                    st.session_state["vpoc_last_clicked"] = clicked
+                    st.session_state["stock_select"] = clicked
+
+    st.divider()
+
 # ---------------- STOCK SELECTION ----------------
 stock_list = (
     sorted(analysis_df["Stock"].unique()) if not analysis_df.empty
@@ -180,7 +348,10 @@ stock_list = (
     else ["No Data"]
 )
 
-selected_stock = st.selectbox("🔍 Select Stock", stock_list)
+if st.session_state.get("stock_select") not in stock_list:
+    st.session_state.pop("stock_select", None)
+
+selected_stock = st.selectbox("🔍 Select Stock", stock_list, key="stock_select")
 
 df_sub = raw_df[raw_df["TRADING CODE"] == selected_stock] if selected_stock != "No Data" else pd.DataFrame()
 
